@@ -141,6 +141,34 @@ export async function run() {
   });
 
   writeFileSync(eventsFile, Buffer.concat(events));
+
+  // A run that produces nothing must say why in the log. Without this, "0 findings" is indistinguishable from
+  // "the endpoint refused, the model was not loaded, or the model refused" — and all three read as a clean review.
+  const decoded = Buffer.concat(events)
+    .toString("utf8")
+    .split(String.fromCharCode(10))
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+
+  const failures = decoded
+    .filter((e) => e.type === "message_end" && e.message?.role === "assistant")
+    .map((e) => e.message)
+    .filter((m) => m.stopReason === "error" || m.errorMessage);
+  for (const m of failures.slice(0, 3)) console.error(`[review] model error: ${m.errorMessage || m.stopReason}`);
+
+  const lastText = decoded
+    .filter((e) => e.type === "message_end" && e.message?.role === "assistant")
+    .map((e) => (e.message.content || []).filter((b) => b.type === "text").map((b) => b.text).join(""))
+    .filter(Boolean)
+    .pop();
+  if (lastText) console.error(`[review] agent said: ${lastText.slice(0, 400)}`);
   const findings = (() => {
     try {
       return readFileSync(findingsFile, "utf8").split("\n").filter(Boolean).length;

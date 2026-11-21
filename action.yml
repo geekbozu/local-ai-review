@@ -47,19 +47,41 @@ runs:
           echo "::notice::No .ai-review.json at the repo root, so this repository has not opted in. Skipping."
         fi
 
-    - uses: actions/setup-node@v4
+    # A repo can merge the workflow before it has the secret or the endpoint configured. Saying so once, and
+    # skipping, keeps a missing key from being a red X on every pull request until someone gets to it.
+    - name: Configured?
+      id: configured
       if: steps.opted-in.outputs.enabled == 'true'
+      shell: bash
+      env:
+        AI_REVIEW_API_KEY_ENV: ${{ inputs.api-key-env }}
+      run: |
+        set -u
+        key="${!AI_REVIEW_API_KEY_ENV:-}"
+        missing=""
+        [ -n "${{ inputs.base-url }}" ] || missing="base-url"
+        [ -n "${{ inputs.model }}" ] || missing="${missing:+$missing, }model"
+        [ -n "$key" ] || missing="${missing:+$missing, }${AI_REVIEW_API_KEY_ENV}"
+        if [ -n "$missing" ]; then
+          echo "ready=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::AI review is opted in but not configured: missing $missing. Skipping."
+        else
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - uses: actions/setup-node@v4
+      if: steps.opted-in.outputs.enabled == 'true' && steps.configured.outputs.ready == 'true'
       with:
         node-version: 22
 
     # Machine tooling, not a project dependency: it must not enter any consumer's package.json.
     - name: Install pi
-      if: steps.opted-in.outputs.enabled == 'true'
+      if: steps.configured.outputs.ready == 'true'
       shell: bash
       run: npm i -g @earendil-works/pi-coding-agent
 
     - name: Review
-      if: steps.opted-in.outputs.enabled == 'true'
+      if: steps.configured.outputs.ready == 'true'
       shell: bash
       env:
         PI_BIN: pi
@@ -73,7 +95,7 @@ runs:
       run: node "${{ github.action_path }}/src/review.mjs"
 
     - name: Post
-      if: steps.opted-in.outputs.enabled == 'true' && inputs.post == 'true'
+      if: steps.configured.outputs.ready == 'true' && inputs.post == 'true'
       shell: bash
       env:
         GITHUB_TOKEN: ${{ github.token }}

@@ -15,6 +15,8 @@ Why it is shaped this way, what was measured, and which choices were close calls
 
 ## Using it
 
+Pin a tag rather than a branch (`@v1`). A review bot that changes under you is one you stop reading.
+
 Two things in the consuming repo. First, `.ai-review.json` at the root — **this is the opt-in**, and without it the
 action prints a notice and exits 0, so adding the workflow everywhere is safe:
 
@@ -54,7 +56,7 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false         # the review may not commit or push
-      - uses: <owner>/<repo>@v1
+      - uses: geekbozu/local-ai-review@v1
         with:
           base-ref: origin/${{ github.base_ref }}
           base-url: ${{ vars.AI_REVIEW_BASE_URL }}   # e.g. http://model-box.example/v1

@@ -132,10 +132,22 @@ async function api(path, init = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+// BASE_REF is the complete ref: "origin/main", not "main". Both callers used to disagree about that, which produced
+// `origin/origin/main` in a log and nothing else to go on. Fail with the value in the message instead.
+const resolveBase = (ref) => {
+  const candidate = ref.includes("/") ? ref : `origin/${ref}`;
+  try {
+    execFileSync("git", ["rev-parse", "--verify", "--quiet", `${candidate}^{commit}`], { stdio: "ignore" });
+  } catch {
+    throw new Error(`BASE_REF "${ref}" does not resolve to a commit. Pass a full ref such as origin/main.`);
+  }
+  return candidate;
+};
+
 async function main() {
   const repo = process.env.GITHUB_REPOSITORY;
   const pr = process.env.PR_NUMBER;
-  const base = process.env.BASE_REF || "main";
+  const base = process.env.BASE_REF || "origin/main";
   const findingsFile = process.env.FINDINGS_FILE || "findings.jsonl";
   const eventsFile = process.env.EVENTS_FILE;
   const diffFile = process.env.DIFF_FILE;
@@ -143,7 +155,7 @@ async function main() {
 
   const diff = diffFile
     ? readFileSync(diffFile, "utf8")
-    : execFileSync("git", ["diff", `origin/${base}...HEAD`], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    : execFileSync("git", ["diff", "-U10", `${resolveBase(base)}...HEAD`], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 
   // The floor is the repo's choice, not this tool's; a repo with no config gets the default.
   const floor = loadConfig()?.severityFloor || "low";

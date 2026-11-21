@@ -55,7 +55,7 @@ test("globs match the way a rule file expects", () => {
 
 test("a literal path matches itself and anything under it", () => {
   assert.ok(matchesAny("AGENTS.md", ["AGENTS.md"]));
-  assert.ok(matchesAny(".pi/rules/frontend.md", [".pi/rules"]));
+  assert.ok(matchesAny(".ai-review/rules/api.md", [".ai-review/rules"]));
   assert.ok(!matchesAny("src/AGENTS.md", ["AGENTS.md"]));
 });
 

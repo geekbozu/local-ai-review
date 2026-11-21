@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadConfig } from "./lib/config.mjs";
+import { normaliseBaseUrl } from "./lib/url.mjs";
 import { parseDiff, touchedPaths } from "./lib/diff.mjs";
 import { readRules, buildPrompt } from "./lib/prompt.mjs";
 
@@ -78,7 +79,7 @@ export async function run() {
 
   const baseRef = env.BASE_REF || "origin/main";
   const model = env.AI_REVIEW_MODEL || config.model;
-  const baseUrl = env.AI_REVIEW_BASE_URL;
+  const baseUrl = normaliseBaseUrl(env.AI_REVIEW_BASE_URL);
   const apiKeyEnv = env.AI_REVIEW_API_KEY_ENV || "AI_REVIEW_API_KEY";
   if (!model) throw new Error("no model: set AI_REVIEW_MODEL or .ai-review.json's model");
   if (!baseUrl) throw new Error("no endpoint: set AI_REVIEW_BASE_URL");

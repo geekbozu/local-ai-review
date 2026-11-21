@@ -79,3 +79,14 @@ test("CRLF frontmatter parses", () => {
   assert.ok(ruleApplies(rule, "src/a.ts"));
   assert.ok(!ruleApplies(rule, "Docs/a.md"));
 });
+
+test("the endpoint base always ends in /v1", async () => {
+  const { normaliseBaseUrl } = await import("../src/lib/url.mjs");
+  assert.equal(normaliseBaseUrl("http://box:8080"), "http://box:8080/v1");
+  assert.equal(normaliseBaseUrl("http://box:8080/"), "http://box:8080/v1");
+  assert.equal(normaliseBaseUrl("http://box:8080/v1"), "http://box:8080/v1");
+  assert.equal(normaliseBaseUrl("http://box:8080/v1/"), "http://box:8080/v1");
+  assert.equal(normaliseBaseUrl("  http://box:8080  "), "http://box:8080/v1");
+  assert.equal(normaliseBaseUrl(""), "");
+  assert.equal(normaliseBaseUrl(undefined), "");
+});

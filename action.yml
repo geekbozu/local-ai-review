@@ -1,0 +1,86 @@
+name: AI review
+description: Review a pull request with a local model on your own hardware, and post the findings as inline comments. Repo-agnostic; a repository opts in with a .ai-review.json at its root.
+
+inputs:
+  base-ref:
+    description: The ref to diff against, e.g. origin/main.
+    required: false
+    default: origin/main
+  base-url:
+    description: OpenAI-compatible endpoint including /v1, e.g. http://model-box.example/v1
+    required: true
+  model:
+    description: Model id as the endpoint knows it.
+    required: true
+  api-key-env:
+    description: Name of the environment variable holding the endpoint's key. The key is never written to disk.
+    required: false
+    default: AI_REVIEW_API_KEY
+  max-tokens:
+    description: Output ceiling per turn. Too small and a thinking model spends it all thinking and reports nothing.
+    required: false
+    default: "16384"
+  reviewer:
+    description: Git ref of this action to run, so a repo can pin a version.
+    required: false
+    default: main
+  pr-number:
+    description: Pull request number. Defaults to the event's.
+    required: false
+    default: ""
+  post:
+    description: Set to false to review without posting (useful for a first run).
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Opted in?
+      id: opted-in
+      shell: bash
+      run: |
+        if [ -f .ai-review.json ]; then
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "enabled=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::No .ai-review.json at the repo root, so this repository has not opted in. Skipping."
+        fi
+
+    - uses: actions/setup-node@v4
+      if: steps.opted-in.outputs.enabled == 'true'
+      with:
+        node-version: 22
+
+    # Machine tooling, not a project dependency: it must not enter any consumer's package.json.
+    - name: Install pi
+      if: steps.opted-in.outputs.enabled == 'true'
+      shell: bash
+      run: npm i -g @earendil-works/pi-coding-agent
+
+    - name: Review
+      if: steps.opted-in.outputs.enabled == 'true'
+      shell: bash
+      env:
+        PI_BIN: pi
+        BASE_REF: ${{ inputs.base-ref }}
+        AI_REVIEW_MODEL: ${{ inputs.model }}
+        AI_REVIEW_BASE_URL: ${{ inputs.base-url }}
+        AI_REVIEW_API_KEY_ENV: ${{ inputs.api-key-env }}
+        AI_REVIEW_MAX_TOKENS: ${{ inputs.max-tokens }}
+        FINDINGS_FILE: ${{ runner.temp }}/ai-review-findings.jsonl
+        EVENTS_FILE: ${{ runner.temp }}/ai-review-events.jsonl
+      run: node "${{ github.action_path }}/src/review.mjs"
+
+    - name: Post
+      if: steps.opted-in.outputs.enabled == 'true' && inputs.post == 'true'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        PR_NUMBER: ${{ inputs.pr-number || github.event.pull_request.number }}
+        BASE_REF: ${{ inputs.base-ref }}
+        FINDINGS_FILE: ${{ runner.temp }}/ai-review-findings.jsonl
+        EVENTS_FILE: ${{ runner.temp }}/ai-review-events.jsonl
+        AI_REVIEW_CONFIG: .ai-review.json
+      run: node "${{ github.action_path }}/src/post.mjs"

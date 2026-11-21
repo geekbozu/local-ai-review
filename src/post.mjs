@@ -1,0 +1,192 @@
+// Posts the review: findings -> anchored comments -> one review, skipping anything a previous run already posted.
+//
+// Run standalone (CI) or imported by review.mjs. The model never supplies a line number; see lib/diff.mjs.
+
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { parseDiff, resolveQuote, normalise } from "./lib/diff.mjs";
+import { openedFiles, uncovered } from "./lib/coverage.mjs";
+import { loadConfig } from "./lib/config.mjs";
+
+export function loadFindings(file) {
+  let raw = "";
+  try {
+    raw = readFileSync(file, "utf8");
+  } catch {
+    return [];
+  }
+  return raw
+    .split("\n")
+    .map(normalise)
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return { _malformed: line };
+      }
+    });
+}
+
+const marker = (f) =>
+  createHash("sha256").update(`${normalise(f.path)}\u0000${normalise(f.quote)}\u0000${f.body}`).digest("hex").slice(0, 16);
+
+const SEVERITY = { critical: 0, high: 1, medium: 2, low: 3 };
+
+export function buildReview({ findings, diff, floor = "low" }) {
+  const files = parseDiff(diff);
+  const min = SEVERITY[floor] ?? 3;
+
+  const posted = [];
+  const dropped = [];
+  const seen = new Set();
+
+  for (const f of findings) {
+    if (f._malformed !== undefined) {
+      dropped.push({ reason: "not JSON", raw: String(f._malformed).slice(0, 120) });
+      continue;
+    }
+    if (!(f.path && f.quote && f.body && f.severity)) {
+      dropped.push({ reason: "missing field", path: f.path, quote: f.quote });
+      continue;
+    }
+    if ((SEVERITY[f.severity] ?? 99) > min) {
+      dropped.push({ reason: `below ${floor}`, path: f.path, quote: f.quote });
+      continue;
+    }
+
+    const hit = resolveQuote(files, f.path, f.quote);
+    if (!hit) {
+      dropped.push({ reason: "cannot anchor to a line in the diff", path: f.path, quote: f.quote });
+      continue;
+    }
+
+    const id = marker(f);
+    if (seen.has(id)) {
+      dropped.push({ reason: "duplicate within this review", path: f.path, quote: f.quote });
+      continue;
+    }
+    seen.add(id);
+
+    posted.push({
+      path: normalise(f.path),
+      line: hit.line,
+      side: "RIGHT",
+      severity: f.severity,
+      marker: id,
+      body: `**${f.severity}** — ${f.body}\n\n<!-- ai-review:${id} -->`,
+    });
+  }
+
+  return { posted, dropped, files };
+}
+
+// Re-runs are normal: a push triggers another review. The hidden marker is the only reliable way to tell "we
+// already said this" from "we are saying it again", so it is written into every body and read back here.
+export function existingMarkers(comments) {
+  const ids = new Set();
+  for (const c of comments) {
+    const m = /<!-- ai-review:([0-9a-f]{16}) -->/.exec(c.body || "");
+    if (m) ids.add(m[1]);
+  }
+  return ids;
+}
+
+export function summarise({ posted, dropped, uncovered: missing = [], turns }) {
+  const lines = [`AI review: ${posted.length} inline comment${posted.length === 1 ? "" : "s"}.`];
+  if (missing.length) {
+    lines.push(
+      `**Not reviewed:** the agent never opened ${missing.length} changed file${missing.length === 1 ? "" : "s"} — ` +
+        missing.map((p) => `\`${p}\``).join(", "),
+    );
+  }
+  if (dropped.length) {
+    lines.push(
+      "",
+      `<details><summary>${dropped.length} finding${dropped.length === 1 ? "" : "s"} not posted</summary>`,
+      "",
+      ...dropped.map(
+        (d) => `- ${d.reason}${d.path ? ` — \`${d.path}\`` : ""}${d.quote ? `: \`${String(d.quote).slice(0, 120)}\`` : ""}`,
+      ),
+      "",
+      "</details>",
+    );
+  }
+  if (turns) lines.push("", `<sub>${turns} turns, advisory only — this never blocks a merge.</sub>`);
+  return lines.join("\n");
+}
+
+async function api(path, init = {}) {
+  const res = await fetch(`https://api.github.com${path}`, {
+    ...init,
+    headers: {
+      authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+      accept: "application/vnd.github+json",
+      "content-type": "application/json",
+      ...(init.headers || {}),
+    },
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`${init.method || "GET"} ${path} -> ${res.status} ${text.slice(0, 400)}`);
+  return text ? JSON.parse(text) : null;
+}
+
+async function main() {
+  const repo = process.env.GITHUB_REPOSITORY;
+  const pr = process.env.PR_NUMBER;
+  const base = process.env.BASE_REF || "main";
+  const findingsFile = process.env.FINDINGS_FILE || "findings.jsonl";
+  const eventsFile = process.env.EVENTS_FILE;
+  const diffFile = process.env.DIFF_FILE;
+  if (!repo || !pr) throw new Error("GITHUB_REPOSITORY and PR_NUMBER are required");
+
+  const diff = diffFile
+    ? readFileSync(diffFile, "utf8")
+    : execFileSync("git", ["diff", `origin/${base}...HEAD`], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+
+  // The floor is the repo's choice, not this tool's; a repo with no config gets the default.
+  const floor = loadConfig()?.severityFloor || "low";
+  const { posted, dropped } = buildReview({ findings: loadFindings(findingsFile), diff, floor });
+
+  const coverage = eventsFile ? openedFiles(eventsFile) : { opened: new Set(), turns: 0 };
+  const missing = eventsFile ? uncovered([...parseDiff(diff).keys()], coverage.opened) : [];
+
+  const existing = existingMarkers(await api(`/repos/${repo}/pulls/${pr}/comments?per_page=100`));
+  const fresh = posted.filter((p) => !existing.has(p.marker));
+  const skipped = posted.length - fresh.length;
+
+  const body = summarise({ posted: fresh, dropped, uncovered: missing, turns: coverage.turns });
+  const comments = fresh.map(({ path, line, side, body: text }) => ({ path, line, side, body: text }));
+
+  if (comments.length || body) {
+    await api(`/repos/${repo}/pulls/${pr}/reviews`, {
+      method: "POST",
+      body: JSON.stringify({ event: "COMMENT", body, comments }),
+    });
+  }
+
+  const report = {
+    posted: fresh.length,
+    alreadyPresent: skipped,
+    dropped: dropped.length,
+    uncovered: missing,
+    turns: coverage.turns,
+  };
+  console.log(JSON.stringify(report));
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    const { appendFileSync } = await import("node:fs");
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${body}\n\n\`\`\`json\n${JSON.stringify(report, null, 2)}\n\`\`\`\n`);
+  }
+}
+
+import { pathToFileURL } from "node:url";
+
+// Run when invoked directly. pathToFileURL, not string surgery: on Windows import.meta.url is
+// file:///C:/..., and a hand-built prefix silently never matches, leaving the CLI a no-op.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

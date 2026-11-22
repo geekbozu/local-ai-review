@@ -92,7 +92,10 @@ function writeAgentDir({ model, baseUrl, apiKeyEnv, maxTokens, thinking }) {
                 maxTokens,
                 cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
                 compat,
-                samplingParams: { max_tokens: maxTokens, temperature: 0.2 },
+                // 0.6 is the model card's recommendation for general tasks. Too cold on a reasoning model
+                // makes it restate an angle instead of converging, which measured as ~10k tokens of thinking
+                // per turn and no findings in 22 turns.
+                samplingParams: { max_tokens: maxTokens, temperature: 0.6 },
                 thinkingLevelMap: levels,
               },
             ],

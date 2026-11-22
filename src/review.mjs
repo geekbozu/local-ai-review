@@ -5,7 +5,7 @@
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
-import { writeFileSync, mkdirSync, readFileSync, existsSync, cpSync, accessSync, constants } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync, readdirSync, existsSync, cpSync, accessSync, constants } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, delimiter } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -332,6 +332,14 @@ export async function run() {
   // loading someone else's code.
   const agentDir = seedAgentDir();
   process.env.PI_CODING_AGENT_DIR = agentDir;
+  // The sandbox hides `_work/_actions`, which is where these extensions live, so they are copied to the one directory
+  // the child can read and write. The alternative — leaving the action's own checkout visible — hands the agent the
+  // reviewer's source to read.
+  const extDir = join(agentDir, "extensions");
+  mkdirSync(extDir, { recursive: true });
+  for (const file of readdirSync(join(import.meta.dirname, "extensions"))) {
+    cpSync(join(import.meta.dirname, "extensions", file), join(extDir, file));
+  }
   writeAgentDir({
     model,
     baseUrl: proxy.baseUrl,
@@ -368,9 +376,9 @@ export async function run() {
     // No MCP: the review reaches nothing outside this machine and its model. A consumer's MCP servers would make the
     // review a path to external systems, which is not what a code review is for.
     "--no-mcp",
-    "-e", join(import.meta.dirname, "extensions", "report-finding.js"),
-    "-e", join(import.meta.dirname, "extensions", "turn-cap.js"),
-    "-e", join(import.meta.dirname, "extensions", "truncate-results.js"),
+    "-e", join(extDir, "report-finding.js"),
+    "-e", join(extDir, "turn-cap.js"),
+    "-e", join(extDir, "truncate-results.js"),
     // pi-rules is the loader: it matches each rule's paths against the file being worked on and injects what applies,
     // at agent start and after every tool result. Given as a package spec rather than a path, so pi installs and caches
     // it; pinned to a commit, which pi never refetches once checked out.

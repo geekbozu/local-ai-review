@@ -151,7 +151,7 @@ export async function run() {
   const rules = readRules(process.cwd(), baseRef, config, touched);
   // Risk hints order the agent's attention; they do not scale its effort. Thoroughness is uniform, the budget is
   // one number, and what is bounded is the work rather than how much any particular line deserves.
-  const hints = riskHints(touched);
+  const hints = riskHints(touched, config.riskHints || []);
   const prompt = buildPrompt({ rules, diff, touched, severityFloor: config.severityFloor, hints });
   console.error(
     `[ai-review] ${touched.length} file(s), ${hints.highRisk.length} in a high-risk area — budget ${config.maxTurns} turns`,
@@ -226,13 +226,27 @@ export async function run() {
     const stop = (signal) => {
       if (stopping) return;
       stopping = true;
-      console.error(`[ai-review] ${signal}: stopping the agent`);
-      child.kill(signal);
+      console.error(`[ai-review] ${signal}: stopping the agent and rendering what it had`);
+
+      // Clean up here rather than relying on a later step: a cancelled job races the runner's grace period, and the
+      // one thing that makes a killed review useful is the transcript of what it managed.
+      try {
+        child.kill(signal);
+      } catch {}
+      try {
+        writeFileSync(transcriptFile, renderTranscript(Buffer.concat(events).toString("utf8").split(String.fromCharCode(10))));
+        console.error(`[ai-review] wrote ${transcriptFile} before exit`);
+      } catch (err) {
+        console.error(`[ai-review] could not render the transcript: ${err.message}`);
+      }
+      void trace.close();
+
       const hard = setTimeout(() => {
         console.error("[ai-review] agent ignored the signal; killing it");
         try {
           child.kill("SIGKILL");
         } catch {}
+        process.exit(143);
       }, 10_000);
       hard.unref();
     };

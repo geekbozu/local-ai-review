@@ -11,6 +11,9 @@ export const CONFIG_FILE = ".ai-review.json";
 const DEFAULTS = {
   rules: [], // paths or globs, relative to the repo root, read from the base ref
   ignore: [], // paths the review should not comment on
+  // Repo-specific risk patterns (regular expressions, case-insensitive). The action's own defaults are domain
+  // words only; anything naming a layout belongs here, in the repository that has that layout.
+  riskHints: [],
   severityFloor: "low", // low | medium | high | critical
   maxTurns: 60, // a runaway stop, not a tuning knob: high enough to be obviously too high
   thinking: "low", // off | minimal | low | medium | high
@@ -33,6 +36,14 @@ export function loadConfig(dir = process.cwd()) {
 
   if (!Array.isArray(config.rules)) throw new Error(`${CONFIG_FILE}: rules must be an array of paths or globs`);
   if (!Array.isArray(config.ignore)) throw new Error(`${CONFIG_FILE}: ignore must be an array of paths or globs`);
+  if (!Array.isArray(config.riskHints)) throw new Error(`${CONFIG_FILE}: riskHints must be an array of regular expressions`);
+  for (const p of config.riskHints) {
+    try {
+      new RegExp(p);
+    } catch {
+      throw new Error(`${CONFIG_FILE}: riskHints contains an invalid regular expression: ${p}`);
+    }
+  }
   if (!["low", "medium", "high", "critical"].includes(config.severityFloor)) {
     throw new Error(`${CONFIG_FILE}: severityFloor must be low, medium, high or critical`);
   }

@@ -91,23 +91,27 @@ test("the endpoint base always ends in /v1", async () => {
   assert.equal(normaliseBaseUrl(undefined), "");
 });
 
-test("risk hints name the dangerous areas and nothing else", async () => {
+test("the default risk hints are domain words, not a repo's layout", async () => {
   const { riskHints } = await import("../src/lib/triage.mjs");
 
-  const rls = riskHints(["supabase/migrations/0001_x.sql", "src/services/events.ts", "README.md"]);
-  assert.deepEqual(rls.highRisk, ["supabase/migrations/0001_x.sql", "src/services/events.ts"], "docs are not a risk area");
+  const risky = riskHints(["db/migrations/0001.sql", "auth/session.ts", "billing/refund.ts", "README.md"]);
+  assert.deepEqual(risky.highRisk, ["db/migrations/0001.sql", "auth/session.ts", "billing/refund.ts"]);
 
-  assert.deepEqual(riskHints(["README.md", "docs/notes.md"]).highRisk, []);
+  // a layout the action has never seen must not be guessed at: this belongs to the repository's config
+  assert.deepEqual(riskHints(["src/services/events.ts", "supabase/functions/send/index.ts"]).highRisk, []);
 });
 
-test("a one-line change to a rules file is a high-risk area, not a skim", async () => {
-  const { riskHints, thoroughBrief } = await import("../src/lib/triage.mjs");
-  const hints = riskHints([".pi/rules/frontend.md"]);
-  assert.deepEqual(hints.highRisk, [".pi/rules/frontend.md"]);
+test("a repository can add its own risk patterns", async () => {
+  const { riskHints } = await import("../src/lib/triage.mjs");
+  const files = ["src/services/events.ts", "docs/notes.md"];
+  const hints = riskHints(files, ["^src/services/", "\.pi/rules/"]);
+  assert.deepEqual(hints.highRisk, ["src/services/events.ts"]);
+});
 
-  const brief = thoroughBrief(hints);
+test("a risk hint is a start-here, never a skim", async () => {
+  const { riskHints, thoroughBrief } = await import("../src/lib/triage.mjs");
+  const brief = thoroughBrief(riskHints([".pi/rules/frontend.md"], ["^\.pi/rules/"]));
   assert.match(brief, /Where risk concentrates/);
-  assert.match(brief, /\.pi\/rules\/frontend\.md/);
   assert.match(brief, /a one-line change carries as/);
   assert.doesNotMatch(brief, /skim/i, "nothing tells the agent to skim");
 });

@@ -13,7 +13,7 @@ import { openedFiles, uncovered } from "./lib/coverage.mjs";
 import { openTrace } from "./lib/trace.mjs";
 import { renderTranscript } from "./lib/transcript.mjs";
 
-import { parseDiff, touchedPaths } from "./lib/diff.mjs";
+import { parseDiff, touchedPaths, diffStats } from "./lib/diff.mjs";
 import { buildPrompt } from "./lib/prompt.mjs";
 import { restoreRulesFromBase } from "./lib/rules.mjs";
 
@@ -167,10 +167,13 @@ export async function run() {
   // Risk hints order the agent's attention; they do not scale its effort. Thoroughness is uniform, the budget is
   // one number, and what is bounded is the work rather than how much any particular line deserves.
   const hints = riskHints(touched, config.riskHints || []);
+  const stats = diffStats(files);
   // No diff in the prompt: the change arrives as a file list and the command that prints it. What the agent can get
   // with one command does not belong in the text it is given, and on a large PR the diff is the largest thing there.
   const prompt = buildPrompt({
     baseRef,
+    stats,
+    contextWindow: config.modelSettings.contextWindow,
     touched,
     severityFloor: config.severityFloor,
     hints,
@@ -188,6 +191,9 @@ export async function run() {
     // The action's input wins when set, so a deployment can clamp a repo's numbers without editing its config.
     settings: { ...config.modelSettings, maxTokens: Number(env.AI_REVIEW_MAX_TOKENS || config.modelSettings.maxTokens) },
   });
+
+  const systemPromptFile = join(agentDir, "reviewer.md");
+  writeFileSync(systemPromptFile, prompt);
 
   const findingsFile = env.FINDINGS_FILE || join(tmpdir(), `ai-review-findings-${process.pid}.jsonl`);
   const promptFile = env.PROMPT_FILE || join(tmpdir(), `ai-review-prompt-${process.pid}.txt`);
@@ -208,6 +214,9 @@ export async function run() {
     // then read the two lines that mattered — instead of a round trip each. On a device that serves one request at a
     // time, turns are the expensive unit.
     "--tools", "read,bash,edit,write,grep,find,ls,codemode,report_finding",
+    // Standing instructions belong in the system prompt, where they are weighted more heavily than a user message.
+    // The user message is then only the kickoff, and the change's facts are in the system prompt too.
+    "--append-system-prompt", systemPromptFile,
     // No MCP: the review reaches nothing outside this machine and its model. A consumer's MCP servers would make the
     // review a path to external systems, which is not what a code review is for.
     "--no-mcp",
@@ -239,7 +248,8 @@ export async function run() {
         AI_REVIEW_TIME_BUDGET_MIN: String(env.AI_REVIEW_TIME_BUDGET_MIN || config.timeBudgetMinutes),
       },
     });
-    child.stdin.end(prompt);
+    // The instructions are in the appended system prompt; this is the kickoff, not a second copy of them.
+    child.stdin.end("Review the change described in your instructions. Report what you find with report_finding.");
     const progress = watch({
       onFinding: (f) => console.error(`[ai-review] finding ${f.findings}: ${f.severity} ${f.path} — ${f.body.slice(0, 100)}`),
       onTurn: (t) =>

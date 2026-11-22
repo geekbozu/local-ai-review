@@ -21,7 +21,7 @@ export function parseDiff(text) {
     const raw = stripCr(line);
     const header = FILE_HEADER.exec(raw);
     if (header) {
-      file = { path: normalise(header[2]), added: [], context: [] };
+      file = { path: normalise(header[2]), added: [], context: [], removed: 0 };
       files.set(file.path, file);
       continue;
     }
@@ -41,6 +41,7 @@ export function parseDiff(text) {
     }
     if (raw.startsWith("-")) {
       oldLine++;
+      file.removed += 1;
       continue;
     }
     file.context.push({ line: newLine++, text: normalise(raw.startsWith(" ") ? raw.slice(1) : raw) });
@@ -78,4 +79,16 @@ export function resolveQuote(files, path, quote) {
 // read one third of a change cannot present itself as a review of the change.
 export function touchedPaths(files) {
   return [...files.keys()];
+}
+
+// The size of the change, per file and in total. A file list says what was touched; this says how much, which is what
+// an agent needs to decide whether to read around or read the file.
+export function diffStats(files) {
+  const perFile = [...files.values()].map((f) => ({
+    path: f.path,
+    added: f.added.length,
+    removed: f.removed,
+  }));
+  const total = perFile.reduce((n, f) => ({ added: n.added + f.added, removed: n.removed + f.removed }), { added: 0, removed: 0 });
+  return { perFile, total };
 }

@@ -101,6 +101,16 @@ runs:
         TRANSCRIPT_FILE: ${{ runner.temp }}/ai-review-transcript.md
       run: node "${{ github.action_path }}/src/review.mjs"
 
+    # Rendered separately from the run so it survives a kill: the events stream to disk as they arrive, and this
+    # reads whatever got there. A cancelled job is exactly the one worth reading.
+    - name: Render the transcript
+      if: always() && steps.configured.outputs.ready == 'true'
+      shell: bash
+      env:
+        EVENTS_FILE: ${{ runner.temp }}/ai-review-events.jsonl
+        TRANSCRIPT_FILE: ${{ runner.temp }}/ai-review-transcript.md
+      run: node "${{ github.action_path }}/src/render-transcript.mjs"
+
     # A 45-minute run that ends with nothing to show is unfixable without the event stream, and the runner is gone
     # by the time anyone asks. Keep them for a week.
     - name: Keep the run

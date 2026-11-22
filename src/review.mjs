@@ -34,21 +34,20 @@ const git = (args, dir = process.cwd()) =>
 // A 45-minute job that prints nothing for 45 minutes is indistinguishable from a wedged one, and the only evidence
 // afterwards was a JSONL file on a runner that no longer exists. This prints as it goes and the same numbers go to
 // the step summary, so a log answers "was it working" without a re-run.
-function watch({ onFinding, onTurn }) {
+export function watch({ onFinding, onTurn }) {
   let buffer = "";
   let turn = 0;
   let findings = 0;
+  // Tool arguments arrive on the start event; the end event carries only the outcome. This outlives a chunk, because a
+  // start and its end routinely land in different reads — inside the chunk handler, every lookup missed and the log
+  // said `finding 1: undefined undefined`.
+  const args = new Map();
   const started = Date.now();
 
   return (chunk) => {
     buffer += chunk.toString("utf8");
     const lines = buffer.split(String.fromCharCode(10));
     buffer = lines.pop() ?? "";
-
-    // report_finding's arguments arrive on the start event; the end event carries only the outcome. Reading args off
-    // the end event logged `finding 1: undefined undefined`, which made the one line a human reads in the job log
-    // useless for telling what a run actually found.
-    const args = new Map();
 
     for (const line of lines) {
       if (!line.trim()) continue;

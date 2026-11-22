@@ -7,6 +7,6 @@
     "node": ">=22.19"
   },
   "scripts": {
-    "test": "node --test test/post.test.mjs test/config.test.mjs test/rules.test.mjs"
+    "test": "node --test test/post.test.mjs test/config.test.mjs test/rules.test.mjs test/watch.test.mjs"
   }
 }

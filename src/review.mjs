@@ -45,6 +45,11 @@ function watch({ onFinding, onTurn }) {
     const lines = buffer.split(String.fromCharCode(10));
     buffer = lines.pop() ?? "";
 
+    // report_finding's arguments arrive on the start event; the end event carries only the outcome. Reading args off
+    // the end event logged `finding 1: undefined undefined`, which made the one line a human reads in the job log
+    // useless for telling what a run actually found.
+    const args = new Map();
+
     for (const line of lines) {
       if (!line.trim()) continue;
       let event;
@@ -54,10 +59,15 @@ function watch({ onFinding, onTurn }) {
         continue;
       }
 
+      if (event.type === "tool_execution_start") {
+        args.set(event.toolCallId, event.args || {});
+        continue;
+      }
+
       if (event.type === "tool_execution_end" && event.toolName === "report_finding" && !event.isError) {
         findings += 1;
-        const args = event.args || {};
-        onFinding?.({ findings, severity: args.severity, path: args.path, body: String(args.body || "") });
+        const found = args.get(event.toolCallId) || {};
+        onFinding?.({ findings, severity: found.severity, path: found.path, body: String(found.body || "") });
       }
 
       if (event.type === "turn_end") {

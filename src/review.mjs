@@ -9,7 +9,7 @@ import { writeFileSync, mkdirSync, readFileSync, readdirSync, existsSync, cpSync
 import { tmpdir } from "node:os";
 import { join, dirname, delimiter } from "node:path";
 import { pathToFileURL } from "node:url";
-import { loadConfig } from "./lib/config.mjs";
+import { loadConfig, loadConfigFromRef } from "./lib/config.mjs";
 import { normaliseBaseUrl } from "./lib/url.mjs";
 import { openedFiles, uncovered } from "./lib/coverage.mjs";
 import { openTrace } from "./lib/trace.mjs";
@@ -353,6 +353,11 @@ export async function run() {
   // In the per-job temp, which is not writable by the child (only two files there are bound), and which cannot
   // outlive the job. A sibling of the workspace would also be outside the binds, but it would persist between jobs,
   // and a crash before this write would let the poster read the previous run's diff.
+  // The policy that decides what is *posted* comes from the base ref, not from the pull request's own copy of the
+  // config: otherwise a PR sets severityFloor to low and confidenceFloor to 0 and grades itself. The review's own
+  // behaviour (model, samplers, budget) stays whatever the checkout says; this is only the part that judges it.
+  const basePolicy = loadConfigFromRef(baseRef, workspace);
+
   const frozenDir = env.FROZEN_DIR || join(tempRoot, "ai-review-frozen");
   const head = (await git(["rev-parse", "HEAD"], workspace)).trim();
   rmSync(frozenDir, { recursive: true, force: true });
@@ -361,9 +366,9 @@ export async function run() {
   writeFileSync(
     join(frozenDir, "meta.json"),
     JSON.stringify({
-      floor: config.severityFloor,
-      confidenceFloor: config.confidenceFloor,
-      ignore: config.ignore,
+      floor: basePolicy?.severityFloor ?? config.severityFloor,
+      confidenceFloor: basePolicy?.confidenceFloor ?? config.confidenceFloor,
+      ignore: basePolicy?.ignore ?? config.ignore,
       baseRef,
       head,
     }),
@@ -625,7 +630,7 @@ export async function run() {
     config,
   };
 
-  const coverage = openedFiles(eventsFile);
+  const coverage = openedFiles(eventsFile, { root: workspace });
   const opened = coverage.opened;
   const turns = coverage.turns;
   const missing = uncovered(touched, opened);
@@ -672,7 +677,9 @@ export async function run() {
   return result;
 }
 
-if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1].replace(/\\/g, "/")}`).href) {
+// pathToFileURL, not string surgery: a path with a space or a `#` in it makes the hand-built form disagree with
+// import.meta.url, and the runner then silently does nothing. post.mjs has used this form for the same reason.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   run().catch((err) => {
     console.error(err);
     process.exit(1);

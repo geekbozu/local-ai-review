@@ -99,7 +99,9 @@ export function buildReview({ findings, diff, floor = "low", ignore = [], confid
     }
     // A finding the agent is not confident in is not a finding to act on, and it used to arrive indistinguishable from
     // one it was sure of. Missing is treated as confident, so a hand-written line or an older run still posts.
-    if (Number.isInteger(f.confidence) && f.confidence < confidenceFloor) {
+    // Any confidence that is present and not a usable number fails closed: the findings file is a writable bind, so the
+    // tool schema is not the only producer, and `"9"`, `7.5` or `true` all used to skip the floor entirely.
+    if (f.confidence !== undefined && (!Number.isFinite(Number(f.confidence)) || Number(f.confidence) < confidenceFloor)) {
       dropped.push({
         reason: `below confidence ${confidenceFloor}`,
         path: f.path,
@@ -268,11 +270,7 @@ async function main() {
 
   // The floor is the repo's choice, not this tool's; a repo with no config gets the default.
   // The floor comes from the commit, not from the working tree: the agent holds `write`/`edit`, and a floor it can
-  // raise is a review that can silence itself. Base ref, matching the rules, so a PR cannot rewrite the config that
-  // decides how its own findings are graded.
-  // The floor comes from the commit, not from the working tree: the agent holds `write`/`edit`, and a floor it can
-  // raise is a review that can silence itself. Base ref, matching the rules, so a PR cannot rewrite the config that
-  // decides how its own findings are graded.
+  // raise is a review that can silence itself. The review step resolves it against the base ref and freezes it.
   const floor = frozen ? frozen.floor : (loadConfigFromRef(base, ws) || loadConfig())?.severityFloor || "low";
   const { posted, dropped } = buildReview({
     findings: loadFindings(findingsFile),

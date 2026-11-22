@@ -420,6 +420,17 @@ export async function run() {
   const events = [];
   // Written as it arrives: a run that is killed leaves the trace of how far it got, which is the run worth reading.
   const trace = openTrace(eventsFile);
+  // The child writes exactly two files: the findings it reports and the notes the budget writes. Create both here, as
+  // root, because the sandbox runs without CAP_DAC_OVERRIDE and a runner temp directory owned by another uid refuses
+  // newly created files. Measured: report_finding and turn-cap both failed with EACCES, and the agent spent its entire
+  // budget trying to mount, unshare and FUSE its way around a permission error it could not fix.
+  for (const file of [findingsFile, notesFile]) {
+    try {
+      if (!existsSync(file)) writeFileSync(file, "");
+    } catch (err) {
+      console.error(`[ai-review] cannot prepare ${file}: ${err.message}`);
+    }
+  }
   const tempDir = dirname(findingsFile);
   const piBin = resolveExecutable(env.PI_BIN || "pi");
   // The whole environment the child gets. `--clearenv` means this list is all there is: no PATH from the runner, no
@@ -475,7 +486,19 @@ export async function run() {
       trace.write(d);
       progress(d);
     });
-    child.stderr.on("data", (d) => process.stderr.write(d));
+    child.stderr.on("data", (d) => {
+      const text = String(d);
+      process.stderr.write(text);
+      // A review that cannot record a finding is not a review. An extension that fails inside the sandbox — a write the
+      // child is not permitted, most likely — has to end the run: measured, the agent spent sixty turns trying to mount
+      // and FUSE its way around the denial instead, and the run reported success with nothing to post.
+      if (/Extension error/.test(text)) {
+        try {
+          child.kill("SIGTERM");
+        } catch {}
+        reject(new Error(`an extension failed inside the sandbox: ${text.trim().split(String.fromCharCode(10))[0]}`));
+      }
+    });
 
     // A cancelled job sends SIGTERM to this process, not to the agent under it. Without forwarding, `pi` survives as
     // an orphan: it keeps its model request alive on a device that serves one at a time, and a cancelled job has no

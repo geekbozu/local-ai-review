@@ -188,7 +188,10 @@ async function main() {
 
   const diff = diffFile
     ? readFileSync(diffFile, "utf8")
-    : execFileSync("git", ["diff", "-U10", `${resolveBase(base)}...HEAD`], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    : execFileSync("git", ["-C", process.env.GITHUB_WORKSPACE || process.cwd(), "diff", "-U10", `${resolveBase(base)}...HEAD`], {
+        encoding: "utf8",
+        maxBuffer: 64 * 1024 * 1024,
+      });
 
   // The floor is the repo's choice, not this tool's; a repo with no config gets the default.
   // The floor comes from the commit, not from the working tree: the agent holds `write`/`edit`, and a floor it can
@@ -197,7 +200,7 @@ async function main() {
   // The floor comes from the commit, not from the working tree: the agent holds `write`/`edit`, and a floor it can
   // raise is a review that can silence itself. Base ref, matching the rules, so a PR cannot rewrite the config that
   // decides how its own findings are graded.
-  const floor = (loadConfigFromRef(base) || loadConfig())?.severityFloor || "low";
+  const floor = (loadConfigFromRef(base, process.env.GITHUB_WORKSPACE || process.cwd()) || loadConfig())?.severityFloor || "low";
   const { posted, dropped } = buildReview({ findings: loadFindings(findingsFile), diff, floor });
 
   // Everything the run found and did not post, with the body a reader would have needed. The summary has room for a

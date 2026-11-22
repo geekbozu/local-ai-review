@@ -297,7 +297,12 @@ export async function run() {
   // The child never sees the endpoint key: it sees a loopback proxy that holds it.
   const proxy = await startKeyProxy({ target: baseUrl, realKey: env[apiKeyEnv] });
 
-  const diff = await git(["diff", "-U10", `${baseRef}...HEAD`]);
+  // Not process.cwd(): a composite action's working directory is the caller's, and relying on it produced
+  // "git diff ...: warning: Not a git repository" on a run whose checkout had succeeded. GITHUB_WORKSPACE is the
+  // checkout, and the line below makes the difference visible when they disagree.
+  const workspace = env.GITHUB_WORKSPACE || process.cwd();
+  console.error(`[ai-review] workspace ${workspace} (cwd ${process.cwd()}), git repo: ${existsSync(join(workspace, ".git"))}`);
+  const diff = await git(["diff", "-U10", `${baseRef}...HEAD`], workspace);
   const files = parseDiff(diff);
   const touched = touchedPaths(files);
   if (!touched.length) {
@@ -306,7 +311,7 @@ export async function run() {
   }
 
   // The extension loads and matches the rules; this only makes sure it reads the base branch's copy of them.
-  const rules = restoreRulesFromBase(process.cwd(), baseRef, config);
+  const rules = restoreRulesFromBase(workspace, baseRef, config);
   // Risk hints order the agent's attention; they do not scale its effort. Thoroughness is uniform, the budget is
   // one number, and what is bounded is the work rather than how much any particular line deserves.
   const hints = riskHints(touched, config.riskHints || []);
@@ -390,7 +395,6 @@ export async function run() {
   const events = [];
   // Written as it arrives: a run that is killed leaves the trace of how far it got, which is the run worth reading.
   const trace = openTrace(eventsFile);
-  const workspace = process.cwd();
   const tempDir = dirname(findingsFile);
   const piBin = resolveExecutable(env.PI_BIN || "pi");
   // The whole environment the child gets. `--clearenv` means this list is all there is: no PATH from the runner, no

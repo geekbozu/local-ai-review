@@ -142,7 +142,7 @@ test("a quote spanning two lines anchors on its first line", () => {
 test("markers in existing comments are read back so a re-run can skip them", () => {
   const { posted } = buildReview({ findings, diff: DIFF });
   const existing = posted.map((p) => ({ body: p.body, user: { login: "github-actions[bot]", type: "Bot" } }));
-  const markers = existingMarkers(existing);
+  const markers = existingMarkers(existing, { login: "github-actions[bot]" });
   assert.equal(markers.size, 2);
   assert.ok(markers.has(posted[0].marker));
   assert.equal(existingMarkers([{ body: "unrelated comment" }]).size, 0);
@@ -267,8 +267,8 @@ test("a marker from someone else's comment does not count", () => {
   assert.equal(existingMarkers([ours, theirs], { login: "github-actions[bot]" }).size, 1, "our login, our marker");
   assert.equal(
     existingMarkers([ours, theirs], { login: null }).size,
-    1,
-    "unknown identity still trusts bots only, which a person cannot fake",
+    0,
+    "an identity we cannot name trusts nothing: duplicates are noise, suppression is a hole",
   );
 });
 

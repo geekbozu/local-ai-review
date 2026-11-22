@@ -50,6 +50,15 @@ const SEVERITY = { critical: 0, high: 1, medium: 2, low: 3 };
 // posted. Markdown is not inert: `@` pings people and teams, a remote image beacons each reader's address back to its
 // host, raw HTML survives, and nothing else caps the size. Posting is the one place the agent's words reach people.
 const MAX_BODY = 2000;
+// Inside a code span, a newline or a backtick ends the span early and everything after it renders as markdown. Anything
+// quoted into a code span goes through this.
+const inline = (value, limit) =>
+  sanitise(String(value))
+    .replace(/[`\r\n]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, limit);
+
 export const sanitise = (body) =>
   String(body)
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
@@ -127,10 +136,11 @@ export function buildReview({ findings, diff, floor = "low" }) {
 export function existingMarkers(comments, { login = null } = {}) {
   const ids = new Set();
   for (const c of comments) {
-    // Whose comment is it? Ours by name when we know our login; otherwise anything a bot wrote, which still stops the
-    // attack, since a person commenting on the pull request cannot be type "Bot".
-    const ours = login ? c.user?.login === login : c.user?.type === "Bot";
-    if (!ours) continue;
+    // Ours by name, and nothing counts if we cannot name ourselves. Trusting any bot was the earlier fallback and it is
+    // not safe: a GitHub App the attacker controls is type "Bot" too, and the marker is a hash of values visible in the
+    // diff. Failing closed here means a run that cannot identify its own token re-posts findings rather than letting one
+    // be suppressed — noise instead of silence.
+    if (!login || c.user?.login !== login) continue;
     const m = /<!-- ai-review:([0-9a-f]{16}) -->/.exec(c.body || "");
     if (m) ids.add(m[1]);
   }
@@ -157,14 +167,14 @@ export function summarise({ posted, dropped, uncovered: missing = [], turns }) {
         // Every part of this line is agent-controlled: `findings.jsonl` is a writable bind, so a line with an invalid
         // severity is dropped and then printed here — severity and path included. Sanitised and capped like the rest,
         // and backticks removed from the path so a code span cannot be closed early.
-        const sev = d.severity ? `**${sanitise(String(d.severity)).slice(0, 40)}** ` : "";
-        const where = d.path ? ` — \`${sanitise(String(d.path)).replace(/`/g, "").slice(0, 200)}\`` : "";
+        const sev = d.severity ? `**${inline(d.severity, 40)}** ` : "";
+        const where = d.path ? ` — \`${inline(d.path, 200)}\`` : "";
         const head = `${sev}${d.reason}${where}`;
         // Model output, in a rendered review body: the same sanitiser as a posted comment, and capped. A dropped finding
         // is not a safe finding, and an uncapped list of them is a way to make the POST fail entirely.
         if (d.body) return `- ${head}\n  ${sanitise(d.body).slice(0, 400)}`;
-        if (d.raw) return `- ${head}: \`${sanitise(d.raw).slice(0, 200)}\``;
-        return `- ${head}${d.quote ? `: \`${sanitise(d.quote).slice(0, 120)}\`` : ""}`;
+        if (d.raw) return `- ${head}: \`${inline(d.raw, 200)}\``;
+        return `- ${head}${d.quote ? `: \`${inline(d.quote, 120)}\`` : ""}`;
       }),
       dropped.length > 25 ? `- …and ${dropped.length - 25} more, in this run's notes` : "",
       "",

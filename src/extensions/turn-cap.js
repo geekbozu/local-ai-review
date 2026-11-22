@@ -30,8 +30,21 @@ export default function (pi) {
     if (notes) appendFileSync(notes, line + "\n");
   };
 
+  // The nudge is advice, and a model can decline it: one measured run took the wrap-up at turn 60 and kept going to turn
+  // 120, reporting and withdrawing the same finding. A budget that is only a message is not a budget, so after a short
+  // grace the child is stopped — the findings file is already on disk, so what it confirmed still gets posted.
+  let grace = 0;
+  const GRACE_TURNS = 6;
+
   pi.on("turn_end", async (event) => {
-    if (steered) return;
+    if (steered) {
+      grace += 1;
+      if (grace > GRACE_TURNS) {
+        note(`still running ${grace} turns after the wrap-up; stopping the run`);
+        process.exit(0);
+      }
+      return;
+    }
 
     const turn = Number(event?.turnIndex ?? 0) + 1;
     const minutes = (Date.now() - startedAt) / 60000;

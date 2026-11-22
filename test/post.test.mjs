@@ -159,6 +159,13 @@ test("the same defect reworded is the same finding, and a re-rating is not", () 
   // A re-rating can take a finding across the floor, so it is a different finding: it has to post.
   const rerated = buildReview({ findings: [{ ...findings[0], severity: "medium" }], diff: DIFF }).posted[0];
   assert.notEqual(original.marker, rerated.marker);
+
+  // Indentation is how it was indented, not which defect it is: the anchor tolerates it, so identity has to.
+  const reindented = buildReview({
+    findings: [{ ...findings[0], quote: `    ${findings[0].quote}` }],
+    diff: DIFF,
+  }).posted[0];
+  assert.equal(original.marker, reindented.marker);
 });
 
 test("the summary names uncovered files and counts dropped findings", () => {

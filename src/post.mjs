@@ -29,13 +29,17 @@ export function loadFindings(file) {
     });
 }
 
-// The identity of a finding for de-duplication. The body is deliberately not in it: the same defect described in
-// different words is the same defect, and a reworded body defeated this — `presencePenalty` was posted three times on
-// the same line in one batch of runs. Severity is in it, because a re-rating from low to medium is a finding that just
-// became visible and should post.
-const marker = (f) =>
+// The identity of a finding for de-duplication: the line it lands on, its severity, and the first quoted line
+// without indentation. Identity used to be the raw quote, which is stricter than the anchor matcher — a run that
+// quoted `"npm:pi-background"` and a run that quoted it with its four leading spaces were two comments on one line.
+// The body is deliberately not in the key: the same defect in different words is the same defect. Severity is,
+// because a re-rating across the floor is a finding that just became visible and should post. Two distinct defects on
+// one line still post separately, since their quotes differ.
+const marker = (f, line) =>
   createHash("sha256")
-    .update(`${normalise(f.path)}\u0000${normalise(f.quote)}\u0000${normalise(f.severity)}`)
+    .update(
+      `${normalise(f.path)}\u0000${line}\u0000${normalise(f.severity)}\u0000${normalise(String(f.quote).split("\n")[0]).trimStart()}`,
+    )
     .digest("hex")
     .slice(0, 16);
 
@@ -75,7 +79,7 @@ export function buildReview({ findings, diff, floor = "low" }) {
       continue;
     }
 
-    const id = marker(f);
+    const id = marker(f, hit.line);
     if (seen.has(id)) {
       dropped.push({ reason: "duplicate within this review", path: f.path, quote: f.quote, severity: f.severity, body: f.body });
       continue;

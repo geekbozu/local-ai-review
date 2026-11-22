@@ -20,6 +20,10 @@ inputs:
     description: Output ceiling per turn. Too small and a thinking model spends it all thinking and reports nothing.
     required: false
     default: "16384"
+  time-budget-minutes:
+    description: Wall-clock budget. A turn cap alone is not a time bound; whichever comes first ends the exploration.
+    required: false
+    default: "45"
   reviewer:
     description: Git ref of this action to run, so a repo can pin a version.
     required: false
@@ -90,9 +94,23 @@ runs:
         AI_REVIEW_BASE_URL: ${{ inputs.base-url }}
         AI_REVIEW_API_KEY_ENV: ${{ inputs.api-key-env }}
         AI_REVIEW_MAX_TOKENS: ${{ inputs.max-tokens }}
+        AI_REVIEW_TIME_BUDGET_MIN: ${{ inputs.time-budget-minutes }}
         FINDINGS_FILE: ${{ runner.temp }}/ai-review-findings.jsonl
         EVENTS_FILE: ${{ runner.temp }}/ai-review-events.jsonl
       run: node "${{ github.action_path }}/src/review.mjs"
+
+    # A 45-minute run that ends with nothing to show is unfixable without the event stream, and the runner is gone
+    # by the time anyone asks. Keep them for a week.
+    - name: Keep the run
+      if: always() && steps.configured.outputs.ready == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ai-review-run
+        path: |
+          ${{ runner.temp }}/ai-review-events.jsonl
+          ${{ runner.temp }}/ai-review-findings.jsonl
+        if-no-files-found: ignore
+        retention-days: 7
 
     - name: Post
       if: steps.configured.outputs.ready == 'true' && inputs.post == 'true'

@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadConfig } from "./lib/config.mjs";
 import { normaliseBaseUrl } from "./lib/url.mjs";
+import { openedFiles, uncovered } from "./lib/coverage.mjs";
 import { parseDiff, touchedPaths } from "./lib/diff.mjs";
 import { readRules, buildPrompt } from "./lib/prompt.mjs";
 
@@ -21,6 +22,44 @@ const git = (args, dir = process.cwd()) =>
     child.stderr.on("data", (d) => (err += d));
     child.on("close", (code) => (code === 0 ? resolve(out) : reject(new Error(`git ${args.join(" ")}: ${err.trim()}`))));
   });
+
+// A 45-minute job that prints nothing for 45 minutes is indistinguishable from a wedged one, and the only evidence
+// afterwards was a JSONL file on a runner that no longer exists. This prints as it goes and the same numbers go to
+// the step summary, so a log answers "was it working" without a re-run.
+function watch({ onFinding, onTurn }) {
+  let buffer = "";
+  let turn = 0;
+  let findings = 0;
+  const started = Date.now();
+
+  return (chunk) => {
+    buffer += chunk.toString("utf8");
+    const lines = buffer.split(String.fromCharCode(10));
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let event;
+      try {
+        event = JSON.parse(line);
+      } catch {
+        continue;
+      }
+
+      if (event.type === "tool_execution_end" && event.toolName === "report_finding" && !event.isError) {
+        findings += 1;
+        const args = event.args || {};
+        onFinding?.({ findings, severity: args.severity, path: args.path, body: String(args.body || "") });
+      }
+
+      if (event.type === "turn_end") {
+        turn += 1;
+        const tools = (event.toolResults || []).map((r) => r.toolName).filter(Boolean);
+        onTurn?.({ turn, seconds: Math.round((Date.now() - started) / 1000), tools, findings });
+      }
+    }
+  };
+}
 
 // The model catalogue is generated from inputs so no repository has to carry one. This is also the only place the
 // key is placed, and it goes in with $NAME so it is never written to disk.
@@ -136,7 +175,19 @@ export async function run() {
       },
     });
     child.stdin.end(prompt);
-    child.stdout.on("data", (d) => events.push(d));
+    const progress = watch({
+      onFinding: (f) => console.error(`[ai-review] finding ${f.findings}: ${f.severity} ${f.path} — ${f.body.slice(0, 100)}`),
+      onTurn: (t) =>
+        console.error(
+          `[ai-review] turn ${t.turn} done at ${t.seconds}s` +
+            (t.tools.length ? ` — ${t.tools.join(", ")}` : " — no tools") +
+            ` — ${t.findings} finding(s) so far`,
+        ),
+    });
+    child.stdout.on("data", (d) => {
+      events.push(d);
+      progress(d);
+    });
     child.stderr.on("data", (d) => process.stderr.write(d));
     child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`pi exited ${code}`))));
   });
@@ -187,12 +238,32 @@ export async function run() {
     config,
   };
 
+  const coverage = openedFiles(eventsFile);
+  const opened = coverage.opened;
+  const turns = coverage.turns;
+  const missing = uncovered(touched, opened);
+
   if (env.GITHUB_STEP_SUMMARY) {
     const { appendFileSync } = await import("node:fs");
     appendFileSync(
       env.GITHUB_STEP_SUMMARY,
-      `Reviewed ${touched.length} file(s) in ${result.seconds}s on \`${model}\` with thinking \`${config.thinking}\`: ` +
-        `${findings} finding(s). Rules: ${rules ? "from the base ref" : "none declared"}.\n`,
+      [
+        "## AI review",
+        "",
+        "| | |",
+        "|---|---|",
+        "| Model | `" + model + "` |",
+        "| Thinking | `" + config.thinking + "` |",
+        "| Wall time | " + result.seconds + "s |",
+        "| Turns | " + turns + " of " + config.maxTurns + " |",
+        "| Findings | " + findings + " |",
+        "| Files changed | " + touched.length + " |",
+        "| Files opened | " + opened.size + " |",
+        "| Rules | " + (rules ? "base ref" : "none declared") + " |",
+        "",
+        missing.length ? "**Never opened:** " + missing.map((f) => "`" + f + "`").join(", ") : "",
+        "",
+      ].join(String.fromCharCode(10)),
     );
   }
 

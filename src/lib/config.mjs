@@ -23,10 +23,11 @@ const DEFAULTS = {
   // this is a threshold on a number rather than another sentence to obey.
   confidenceFloor: 7, // 0-10
   maxTurns: 60, // a runaway stop, not a tuning knob: high enough to be obviously too high
-  // Tokens of context before the run wraps up. Not a fraction of the window: on the hardware this was built against a
-  // 128k prompt costs five minutes of prefill before the first token and the request is cut at ten, so "half the window"
-  // is a coin flip rather than a bound. 64k is about two minutes there, and a review of a diff needs far less.
-  contextBudget: 64000,
+  // Tokens of context before the run wraps up. Off by default: a system that serves its own context — a GPU running
+  // llama.cpp answers a 128k prompt in seconds — needs no such bound, and a default that encodes one accelerator's
+  // ten-minute cut would silently shorten reviews everywhere else. A deployment whose model box is slow sets a number,
+  // in tokens, in its own config.
+  contextBudget: 0, // 0 = off
   thinking: "low", // off | minimal | low | medium | high
   model: null, // null = the action input decides
   // Everything the model call needs that is a property of the model rather than of the repository's policy. These are

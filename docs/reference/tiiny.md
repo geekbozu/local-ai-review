@@ -27,6 +27,7 @@ those notes that changes how a reviewer has to be written, kept here so a missin
 ## What that means for this action
 
 The last three are why `src/extensions/turn-cap.js` steers with a **user** message rather than a system one, why
-`src/review.mjs` sets the output ceiling in **both** places it can be set, and why the turn budget also stops on a token
-count (`contextBudget`, default 64k) rather than on turns alone. The first is why the base URL is
+`src/review.mjs` sets the output ceiling in **both** places it can be set, and why a deployment on hardware like this should set
+`contextBudget` (in tokens; 64k on this device, and off by default because a model box that serves its own context at
+speed does not need it). The first is why the base URL is
 normalised on the way in.

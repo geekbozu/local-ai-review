@@ -12,6 +12,10 @@ import { normaliseBaseUrl } from "./lib/url.mjs";
 import { openedFiles, uncovered } from "./lib/coverage.mjs";
 import { openTrace } from "./lib/trace.mjs";
 import { renderTranscript } from "./lib/transcript.mjs";
+
+// The client's output budget per turn, not a review budget: the loop bounds a run. High enough never to bind on
+// a normal turn (~10k of thinking) and only to stop a pathological one running for hours.
+const MAX_OUTPUT_TOKENS = Number(process.env.AI_REVIEW_MAX_TOKENS || 65536);
 import { parseDiff, touchedPaths } from "./lib/diff.mjs";
 import { readRules, buildPrompt } from "./lib/prompt.mjs";
 import { riskHints } from "./lib/triage.mjs";
@@ -87,15 +91,21 @@ function writeAgentDir({ model, baseUrl, apiKeyEnv, maxTokens, thinking }) {
                 reasoning: true,
                 input: ["text"],
                 contextWindow: 262144,
-                // Pi sizes its own output budget from here. Too small and a thinking model spends it all
-                // thinking and reports nothing, which reads as a refusal and is not one.
-                maxTokens,
+                // Not a per-turn cap: this is the client's own output budget, and the loop is what bounds a run.
+                // A value below the size of the model's thinking truncates the turn mid-thought and returns no
+                // tool call at all — measured at ~10k tokens of thinking per turn, so 4096 "spends nothing" is
+                // really "does nothing". Set high enough never to bind in practice (natural stops run ~10k) and
+                // only to stop a pathological turn from running for hours.
+                maxTokens: MAX_OUTPUT_TOKENS,
                 cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
                 compat,
                 // 0.6 is the model card's recommendation for general tasks. Too cold on a reasoning model
                 // makes it restate an angle instead of converging, which measured as ~10k tokens of thinking
                 // per turn and no findings in 22 turns.
-                samplingParams: { max_tokens: maxTokens, temperature: 0.6 },
+                //
+                // No max_tokens in the request: an OpenAI-compatible server defaults to its own limit (-1 on the
+                // hardware this was built against, meaning the context), so a per-turn ceiling can only hurt.
+                samplingParams: { temperature: 0.6 },
                 thinkingLevelMap: levels,
               },
             ],

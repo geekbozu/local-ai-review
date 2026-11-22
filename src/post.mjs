@@ -124,10 +124,13 @@ export function buildReview({ findings, diff, floor = "low" }) {
 // Only comments this token wrote count as "we already said that". The marker is a hash of path, line, severity and the
 // first quoted line — every input readable from the diff — so anyone who can comment on the pull request can compute one
 // and suppress a real finding by posting it first. `only` is the login the token resolves to.
-export function existingMarkers(comments, only = null) {
+export function existingMarkers(comments, { login = null } = {}) {
   const ids = new Set();
   for (const c of comments) {
-    if (only && c.user?.login !== only) continue;
+    // Whose comment is it? Ours by name when we know our login; otherwise anything a bot wrote, which still stops the
+    // attack, since a person commenting on the pull request cannot be type "Bot".
+    const ours = login ? c.user?.login === login : c.user?.type === "Bot";
+    if (!ours) continue;
     const m = /<!-- ai-review:([0-9a-f]{16}) -->/.exec(c.body || "");
     if (m) ids.add(m[1]);
   }
@@ -255,10 +258,12 @@ async function main() {
   // Who we are, so a comment written by someone else cannot pass for one of ours. `/user` is a user-to-server endpoint
   // and an installation token gets nothing from it, which would have left this filter silently doing nothing; `/app`
   // answers for an installation, and the bot's login is its slug.
+  // /app answers for an installation token, /user for a personal one, and each 401s for the other. If neither answers,
+  // the fallback still only trusts bot-authored comments.
   const me = await api("/app")
     .then((a) => (a?.slug ? `${a.slug}[bot]` : null))
-    .catch(() => null);
-  const existing = existingMarkers(await api(`/repos/${repo}/pulls/${pr}/comments?per_page=100`), me);
+    .catch(() => api("/user").then((u) => u?.login ?? null).catch(() => null));
+  const existing = existingMarkers(await api(`/repos/${repo}/pulls/${pr}/comments?per_page=100`), { login: me });
   const fresh = posted.filter((p) => !existing.has(p.marker));
   const skipped = posted.length - fresh.length;
 

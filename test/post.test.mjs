@@ -261,8 +261,13 @@ test("a dropped finding is sanitised too, and a marker cannot be forged into a b
 // The marker is a hash of values readable from the diff, so anyone who can comment can compute one. Only comments this
 // token wrote may count as "already said".
 test("a marker from someone else's comment does not count", () => {
-  const ours = { body: "x <!-- ai-review:0123456789abcdef -->", user: { login: "github-actions[bot]" } };
-  const theirs = { body: "y <!-- ai-review:fedcba9876543210 -->", user: { login: "someone" } };
-  assert.equal(existingMarkers([ours, theirs], "github-actions[bot]").size, 1);
-  assert.equal(existingMarkers([ours, theirs]).size, 2, "with no identity given, the caller gets what it asked for");
+  const ours = { body: "x <!-- ai-review:0123456789abcdef -->", user: { login: "github-actions[bot]", type: "Bot" } };
+  const theirs = { body: "y <!-- ai-review:fedcba9876543210 -->", user: { login: "someone", type: "User" } };
+
+  assert.equal(existingMarkers([ours, theirs], { login: "github-actions[bot]" }).size, 1, "our login, our marker");
+  assert.equal(
+    existingMarkers([ours, theirs], { login: null }).size,
+    1,
+    "unknown identity still trusts bots only, which a person cannot fake",
+  );
 });

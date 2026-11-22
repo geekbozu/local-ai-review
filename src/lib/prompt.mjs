@@ -4,6 +4,47 @@
 // what the agent can obtain with one command does not belong in the text it is given. So the change arrives as a list
 // of files and the command that prints the diff, rather than as the diff itself.
 
+import { execFileSync } from "node:child_process";
+import { matchesAny, ruleApplies } from "./config.mjs";
+
+const CAP = 12000; // characters of rules; beyond this they crowd out everything else
+
+const git = (dir, args) =>
+  execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+
+export function listRuleFiles(dir, baseRef, config) {
+  if (!config.rules.length) return [];
+  return git(dir, ["ls-tree", "-r", "--name-only", baseRef])
+    .split("\n")
+    .filter(Boolean)
+    .filter((path) => matchesAny(path, config.rules));
+}
+
+// Rules come from the *base* ref, not the checkout: the review runs against the PR's tree, so a PR that edits its own
+// rules would otherwise be judged by them. Only the files whose `paths:` frontmatter covers a changed file are
+// included — the rules are the largest thing in the prompt now that the diff is out of it.
+export function readRules(dir, baseRef, config, touched) {
+  const chunks = [];
+  let used = 0;
+
+  for (const path of listRuleFiles(dir, baseRef, config)) {
+    let content;
+    try {
+      content = git(dir, ["show", `${baseRef}:${path}`]);
+    } catch {
+      continue; // a rule file that exists only on the PR is not a rule yet
+    }
+    if (!touched.some((file) => ruleApplies(content, file))) continue;
+
+    const slice = content.slice(0, Math.max(0, CAP - used));
+    if (!slice) break;
+    chunks.push(`--- ${path} ---\n${slice.trim()}`);
+    used += slice.length;
+  }
+
+  return chunks.join("\n\n");
+}
+
 const INSTRUCTIONS = (severityFloor, baseRef) => `## Change under review
 
 base: ${baseRef}

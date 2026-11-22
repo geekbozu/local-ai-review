@@ -269,3 +269,14 @@ test("a bad model setting fails the run rather than shipping a silent default", 
   assert.throws(() => loadConfig(write({ modelSettings: { reasoning: "yes" } })), /reasoning must be true or false/);
   assert.throws(() => loadConfig(write({ resultChars: 1.5 })), /resultChars must be a non-negative integer/);
 });
+
+test("every module the run imports resolves — a missing export is caught here, not on a board", async () => {
+  // node --check validates syntax only. A wholesale rewrite of a module can drop an export and every syntax check
+  // still passes, which is exactly how a review job failed in one minute with a SyntaxError from the import site.
+  await import("../src/review.mjs");
+  await import("../src/post.mjs");
+  const prompt = await import("../src/lib/prompt.mjs");
+  for (const name of ["readRules", "listRuleFiles", "buildPrompt", "thoroughBrief"]) {
+    assert.equal(typeof prompt[name], "function", `prompt.mjs must export ${name}`);
+  }
+});

@@ -49,7 +49,7 @@ Numbers are that hardware's; the shapes generalise.
 | D6 | The whole checkout, `bash` included, inside an **ephemeral** runner — and `persist-credentials: false` | "Review without search is useless". The boundary is the throwaway container; the one prohibition is committing, and that is enforced by stripping the credential rather than by asking nicely | Diff-only; a read-only tool set |
 | D7 | Rules are declared per repo and read from the **base ref** | A PR must not rewrite or bootstrap the thing that judges it: `AGENTS.md`, rule files and the client's own settings are all editable in a diff | Rules from the checkout; no rules at all |
 | D8 | **Opt-in is a config file** (`.ai-review.json`); no file means no review, a notice and exit 0 | Legible in a diff, next to the decision to be reviewed. Repeating a workflow into a repo is not opt-in — the workflow gets copied by hand and then reviews a repo that never asked | A repository variable (invisible from the repo); a PR label (a bot nobody remembers to label); presence of the job |
-| D9 | Nothing about a repo, endpoint or model is compiled in: inputs and config only | The action answers a question any repo can ask, and anything hardcoded becomes a fork per consumer | A repo-specific action |
+| D9 | Advisory (`continue-on-error`), runs on every push to a code PR, docs-only pushes skipped by `paths-ignore`, in **its own workflow** with a 90-minute timeout and a concurrency group that **queues rather than cancels** | Two separate reasons. Advisory because a model's opinion must never stop a merge. Its own workflow because a run-level `cancel-in-progress` takes every job in the run with it, and a job cannot opt out of its own run being cancelled — four pushes produced four cancellations and one completed review, and the one that completed was followed by an hour of silence. Queue rather than cancel because superseded findings are harmless: the poster skips comments it already made, by marker | Label-gated; a required check; living inside the gate's workflow (tried, cancelled every time); `cancel-in-progress: true` (a review that never finishes is one nobody reads) | F16, F23 |
 | D10 | Every comment carries one of four severities, forced by the tool schema, and none of them blocks | The vocabulary is data for a reader or a later consumer, not a gate. A schema enum makes self-grading consistent | Free-text severity; a blocking level |
 | D11 | Findings on the same line post separately, and each body must read on its own | Two distinct defects are two comments; legibility comes from independence, not from merging | Merging per line |
 | D12 | A **turn cap** steers a wrap-up message at a budget, with the job timeout as backstop | F10: there is no step limit, and an unbounded agent on local hardware can eat a job | Trusting the model to stop; timeout alone |
@@ -110,3 +110,11 @@ superseded. The duration was the problem — a 60-turn budget spent 66 minutes �
 scaling, which D15 reverses. A path classifier says a rules file is mechanical; a rules file is the case where one
 line changes how everything else is judged. The bound is now a single turn budget with an instruction to stop, and
 the path list only orders attention.
+
+**2026-11-22 — the review's own workflow, because a run-level cancel is not something a job can survive.** The
+`ai-review` job lived inside the CI workflow, whose `cancel-in-progress` is correct for a two-minute gate and lethal
+for a 45-minute advisory review: every job in the run was marked cancelled, including ones that take 92 ms. Tuning
+job-level concurrency cannot help, because the cancel happens above the job. Moving it to `ai-review.yml` with
+`cancel-in-progress: false` is the smallest arrangement where a review finishes, at the cost of wall time on a
+two-board pool. The queue semantics themselves are unverified — proving them needs a push while a review runs, which
+costs another full cycle — so that is a claim to check rather than trust.

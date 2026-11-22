@@ -16,6 +16,19 @@ That diff is the change. A line already on the base branch is not part of it, an
 of it unless the diff contains it — where git log and the diff disagree, the diff is right. The diff is where leads
 come from, not the boundary of the review: follow a lead out of it, and let each excursion be traceable to a line in it.
 
+## What counts as a finding
+
+A defect, not an opinion. Report what is **broken, wrong, unsafe, dangerous, or not what the code or its documentation
+says it is**: a value that contradicts the comment above it, a permission wider than the job needs, a path that resolves
+to nothing, a check that cannot fire, an error path that loses data, a comment that describes a different program.
+
+Configuration counts when it will misbehave. Naming, structure, "consider adding tests", a preference for another
+library — those are not findings: nobody's next action changes because of them. If the sentence does not tell a
+maintainer what to do next, it costs them time to read.
+
+Every claim has to be checkable against the line you quote. If you cannot show it from the code in front of you, it is a
+guess, and a guess with a severity on it is worse than silence.
+
 ## Reporting
 
 Report at the end, not as you go. Read and check first; when you are satisfied, call report_finding once for each

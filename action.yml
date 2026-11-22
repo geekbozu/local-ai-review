@@ -97,6 +97,7 @@ runs:
         AI_REVIEW_TIME_BUDGET_MIN: ${{ inputs.time-budget-minutes }}
         FINDINGS_FILE: ${{ runner.temp }}/ai-review-findings.jsonl
         EVENTS_FILE: ${{ runner.temp }}/ai-review-events.jsonl
+        PROMPT_FILE: ${{ runner.temp }}/ai-review-prompt.txt
       run: node "${{ github.action_path }}/src/review.mjs"
 
     # A 45-minute run that ends with nothing to show is unfixable without the event stream, and the runner is gone
@@ -106,9 +107,10 @@ runs:
       uses: actions/upload-artifact@v4
       with:
         name: ai-review-run
-        path: |
-          ${{ runner.temp }}/ai-review-events.jsonl
-          ${{ runner.temp }}/ai-review-findings.jsonl
+        # The glob, not a list: events (the trace), findings (what it decided), prompt (what it was told). The turn
+        # budget, the anti-spin instruction and the risk hints are all tuned by reading these against each other, and
+        # the prompt is the half that is otherwise unrecoverable.
+        path: ${{ runner.temp }}/ai-review-*
         if-no-files-found: ignore
         retention-days: 7
 

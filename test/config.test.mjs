@@ -116,3 +116,22 @@ test("no high-risk areas means no brief at all", async () => {
   const { riskHints, thoroughBrief } = await import("../src/lib/triage.mjs");
   assert.equal(thoroughBrief(riskHints(["README.md"])), "");
 });
+
+test("the trace is on disk before the process ends", async () => {
+  const { openTrace } = await import("../src/lib/trace.mjs");
+  const { readFileSync, mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+
+  const file = join(mkdtempSync(join(tmpdir(), "trace-")), "events.jsonl");
+  const trace = openTrace(file);
+
+  trace.write(Buffer.from('{"type":"turn_end","turn":1}\n'));
+  await new Promise((r) => setTimeout(r, 20));
+  // read before close on purpose: a killed run gets the chunks written before the kill, not the ones after
+  assert.match(readFileSync(file, "utf8"), /turn_end/);
+
+  trace.write(Buffer.from('{"type":"turn_end","turn":2}\n'));
+  await trace.close();
+  assert.equal(readFileSync(file, "utf8").trim().split("\n").length, 2);
+});

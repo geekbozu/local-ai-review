@@ -10,6 +10,7 @@ import { pathToFileURL } from "node:url";
 import { loadConfig } from "./lib/config.mjs";
 import { normaliseBaseUrl } from "./lib/url.mjs";
 import { openedFiles, uncovered } from "./lib/coverage.mjs";
+import { openTrace } from "./lib/trace.mjs";
 import { parseDiff, touchedPaths } from "./lib/diff.mjs";
 import { readRules, buildPrompt } from "./lib/prompt.mjs";
 import { riskHints } from "./lib/triage.mjs";
@@ -151,6 +152,8 @@ export async function run() {
   });
 
   const findingsFile = env.FINDINGS_FILE || join(tmpdir(), `ai-review-findings-${process.pid}.jsonl`);
+  const promptFile = env.PROMPT_FILE || join(tmpdir(), `ai-review-prompt-${process.pid}.txt`);
+  writeFileSync(promptFile, prompt);
   const notesFile = join(tmpdir(), `ai-review-notes-${process.pid}.txt`);
   const eventsFile = env.EVENTS_FILE || join(tmpdir(), `ai-review-events-${process.pid}.jsonl`);
 
@@ -170,6 +173,8 @@ export async function run() {
 
   const started = Date.now();
   const events = [];
+  // Written as it arrives: a run that is killed leaves the trace of how far it got, which is the run worth reading.
+  const trace = openTrace(eventsFile);
   await new Promise((resolve, reject) => {
     const child = spawn(env.PI_BIN || "pi", args, {
       stdio: ["pipe", "pipe", "pipe"],
@@ -193,13 +198,14 @@ export async function run() {
     });
     child.stdout.on("data", (d) => {
       events.push(d);
+      trace.write(d);
       progress(d);
     });
     child.stderr.on("data", (d) => process.stderr.write(d));
     child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`pi exited ${code}`))));
   });
 
-  writeFileSync(eventsFile, Buffer.concat(events));
+  await trace.close();
 
   // A run that produces nothing must say why in the log. Without this, "0 findings" is indistinguishable from
   // "the endpoint refused, the model was not loaded, or the model refused" — and all three read as a clean review.
@@ -267,6 +273,7 @@ export async function run() {
         "| Files changed | " + touched.length + " |",
         "| Files opened | " + opened.size + " |",
         "| Rules | " + (rules ? "base ref" : "none declared") + " |",
+        "| Trace | `ai-review-run` artefact: events, findings, prompt |",
         "",
         missing.length ? "**Never opened:** " + missing.map((f) => "`" + f + "`").join(", ") : "",
         "",

@@ -74,7 +74,8 @@ src/lib/config.mjs    .ai-review.json: defaults, validation, globs, rule frontma
 src/lib/prompt.mjs    rule selection from the base ref, prompt assembly
 src/lib/diff.mjs      diff → per-file line maps; quote → line number
 src/lib/coverage.mjs  tool stream → which files were opened
-src/extensions/       the report_finding tool, the turn cap
+src/extensions/       the report_finding tool, the turn cap, the result cap
+docs/security.md      the threat model: what the sandbox enforces, and what it does not
 tools/proxy.mjs       dev only: logs what the client puts on the wire
 tools/leak-audit.mjs  dev only: what a public copy would leak
 ```
@@ -166,6 +167,16 @@ a *did it post it* test — or the next session will "fix" a correct grade.
 more jobs. The boards cache an action under its ref directory and reuse it; the tag is resolved when a job starts, not
 when it is pushed, so two boards can be running two versions of `@v1` at once (F19). Anything that compares runs has to
 pin a commit, or at least record which one each run actually got. Nothing about this is visible from the workflow side.
+
+**2026-11-22 — a command-string guard was replaced by a mount.** An adversarial pass found what the enforced path guard
+did not cover: it matched tokens beginning with `/`, so `..`, `$HOME` and a subshell all walked past it, `edit` and
+`write` were not guarded at all, and the child inherited the runner's whole environment — which included the endpoint
+key. The fix is not more patterns. The run now happens inside `bubblewrap`: root read-only, the checkout and a per-job
+directory writable, the action's own checkout hidden with a tmpfs, the environment cleared, a non-root uid, all
+capabilities dropped. The endpoint key no longer exists in that process — a loopback proxy holds it and the child gets
+a per-run token. The poster reads the severity floor from the base ref instead of the working tree, and posted bodies
+are length-capped, have `@` escaped, and reject image and raw HTML syntax. `scope.js` is deleted rather than extended:
+a guard that argues with intent loses, and it had already lost. See `docs/security.md`.
 
 **2026-11-22 — most runs leave two or three changed files unread.** The coverage gate named them every time, which is
 it working. The decision was not to enforce a read (D18): from outside, a file skipped as irrelevant and a file never

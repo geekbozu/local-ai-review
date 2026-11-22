@@ -66,7 +66,8 @@ The diff is where leads come from, not the boundary of the review. Follow a lead
 the table it writes, the test that covers it — and let each excursion be traceable to a line in the diff. Reading
 outside those leads is how a review of five files becomes an hour of reading a repository.
 
-Read narrowly. Search for the name you care about first, then read the lines around it; the read tool takes an offset
+When one question needs several lookups, codemode does them in one go: a short script that greps for the name,
+filters what comes back, and hands you the two lines that mattered, instead of a turn per lookup. Search for the name you care about first, then read the lines around it; the read tool takes an offset
 and a limit, and a whole file is usually the wrong question. Documents, ledgers and generated files are the last thing
 to open, not the first, and only when a line in the diff points at one.
 

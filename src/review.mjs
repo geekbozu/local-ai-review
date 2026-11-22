@@ -187,7 +187,13 @@ export async function run() {
     "--no-extensions", // the checkout must not supply executable extensions
     "--thinking", config.thinking,
     // Plain tool names replace the whole selection, and a custom tool that is not named is silently absent.
-    "--tools", "read,bash,edit,write,grep,find,ls,report_finding",
+    // codemode lets the agent do several lookups in one turn — grep a name across four files, filter the result,
+    // then read the two lines that mattered — instead of a round trip each. On a device that serves one request at a
+    // time, turns are the expensive unit.
+    "--tools", "read,bash,edit,write,grep,find,ls,codemode,report_finding",
+    // No MCP: the review reaches nothing outside this machine and its model. A consumer's MCP servers would make the
+    // review a path to external systems, which is not what a code review is for.
+    "--no-mcp",
     "-e", join(import.meta.dirname, "extensions", "report-finding.js"),
     "-e", join(import.meta.dirname, "extensions", "turn-cap.js"),
     "-e", join(import.meta.dirname, "extensions", "truncate-results.js"),

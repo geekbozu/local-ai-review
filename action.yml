@@ -79,6 +79,16 @@ runs:
         node-version: 22
 
     # Machine tooling, not a project dependency: it must not enter any consumer's package.json.
+    # Belt and braces for the same problem the signal handler covers: a cancelled previous attempt on this board can
+    # leave an agent behind, and it would hold the model's only slot while this run queues behind it. Cheap, and it
+    # fails harmlessly when there is nothing to clear.
+    - name: Clear any leftover agent
+      if: steps.configured.outputs.ready == 'true'
+      shell: bash
+      run: |
+        pkill -f 'src/review.mjs' 2>/dev/null || true
+        pkill -f 'pi-coding-agent' 2>/dev/null || true
+
     - name: Install pi
       if: steps.configured.outputs.ready == 'true'
       shell: bash

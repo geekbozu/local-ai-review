@@ -217,6 +217,27 @@ export async function run() {
       progress(d);
     });
     child.stderr.on("data", (d) => process.stderr.write(d));
+
+    // A cancelled job sends SIGTERM to this process, not to the agent under it. Without forwarding, `pi` survives as
+    // an orphan: it keeps its model request alive on a device that serves one at a time, and a cancelled job has no
+    // timeout left to end it. Measured on a real cancel — a review was still generating seven minutes after its run
+    // was marked cancelled, holding the only model slot while the replacement queued behind it.
+    let stopping = false;
+    const stop = (signal) => {
+      if (stopping) return;
+      stopping = true;
+      console.error(`[ai-review] ${signal}: stopping the agent`);
+      child.kill(signal);
+      const hard = setTimeout(() => {
+        console.error("[ai-review] agent ignored the signal; killing it");
+        try {
+          child.kill("SIGKILL");
+        } catch {}
+      }, 10_000);
+      hard.unref();
+    };
+    for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(signal, () => stop(signal));
+
     child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`pi exited ${code}`))));
   });
 

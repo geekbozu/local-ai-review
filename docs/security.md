@@ -70,12 +70,16 @@ The invocation, in shape:
 --ro-bind "$cache" "$cache"                   shared, unpoisonable
 --tmpfs /tmp --dev /dev --proc /proc
 --tmpfs /_work/_actions                       the action's own source is not visible
---unshare-pid --die-with-parent --clearenv
---uid 1000 --gid 1000 --cap-drop ALL
+--tmpfs /root                                 the runner's own home is empty
+--ro-bind-try /dev/null /var/run/docker.sock  the socket is not connectable
+--unshare-pid --die-with-parent --clearenv --cap-drop ALL
 ```
 
-The uid and the capability drop are load-bearing: the runner container runs as root, and a sandbox that keeps root
-inside it grants far more than a write to `..`.
+**No uid drop**, and that is measured rather than preferred. A runner container usually runs as root, and
+`--unshare-user` then maps root to root, so `--uid 1000` lands on the overflow uid and can write nowhere. Dropping
+privileges needs a non-root runner user, which is the runner's decision, not this action's. What is enforced instead:
+every capability dropped — so even as root there is no DAC override, no mount and no ptrace across the pid namespace —
+nothing writable but two binds, and the paths worth reading hidden by a mount rather than argued with.
 
 **Network stays.** With no credentials in the child, there is nothing left to exfiltrate that the attacker did not
 already write. Unsharing the network would be stronger, and would also mean pi cannot reach anything — including the

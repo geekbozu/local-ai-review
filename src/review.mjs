@@ -87,16 +87,6 @@ export function watch({ onFinding, onTurn }) {
 // allowed; a relative path defeated it in one attempt, and no amount of pattern-writing wins that game. A mount
 // cannot be argued with.
 
-const SANDBOX_UID = "1000";
-
-const chownTree = (path) => {
-  try {
-    execFileSync("chown", ["-R", `${SANDBOX_UID}:${SANDBOX_UID}`, path], { stdio: "ignore" });
-  } catch {
-    // Not root, or the filesystem disagrees: the bind mounts still hold, writes may simply fail later.
-  }
-};
-
 export function bwrapAvailable() {
   try {
     execFileSync("bwrap", ["--version"], { stdio: "ignore" });
@@ -109,17 +99,22 @@ export function bwrapAvailable() {
 // Root is read-only; the workspace and a per-job directory are writable; the action's own checkout is hidden rather
 // than forbidden; the environment is cleared and rebuilt from the whitelist below.
 export function sandboxArgv({ argv, workspace, writable = [], envForChild = {} }) {
+  // No uid drop, and not by preference. A runner container commonly runs as root, and `--unshare-user` then maps root
+  // to root, so `--uid 1000` lands on the overflow uid and can write nowhere — measured. Dropping privileges needs a
+  // non-root runner user, which is the runner's decision rather than this action's. What is enforced instead: every
+  // capability gone, so even as root there is no DAC override, no mount, no ptrace; nothing writable but two binds;
+  // and the places worth reading hidden rather than guarded.
   const args = [
     "--ro-bind", "/", "/",
     "--bind", workspace, workspace,
+    "--tmpfs", "/root",
+    "--ro-bind-try", "/dev/null", "/var/run/docker.sock",
     "--tmpfs", "/tmp",
     "--dev", "/dev",
     "--proc", "/proc",
     "--unshare-pid",
     "--die-with-parent",
     "--clearenv",
-    "--uid", SANDBOX_UID,
-    "--gid", SANDBOX_UID,
     "--cap-drop", "ALL",
   ];
   for (const dir of writable) if (dir && existsSync(dir)) args.push("--bind", dir, dir);
@@ -387,7 +382,6 @@ export async function run() {
     // A per-run token the loopback proxy accepts, standing where the real key would be.
     [apiKeyEnv]: proxy.token,
   };
-  for (const dir of [workspace, agentDir, tempDir]) chownTree(dir);
   const sandboxed = sandboxArgv({
     argv: [env.PI_BIN || "pi", ...args],
     workspace,

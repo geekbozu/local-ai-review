@@ -1,24 +1,26 @@
-// The event stream as something a person reads.
+// The event stream as a plain-text transcript.
 //
-// `--mode json` emits a delta per token and then the finished message, so 87% of a trace is superseded fragments of
-// the 13% that matters. The trace is kept whole because bytes are cheap and a torn file is worse than a large one —
-// this is the readable view of it: what the agent thought, what it ran, what came back, and what it decided.
+// "Lean" means no JSON, no token-by-token deltas, no event envelopes — not less reasoning. The reasoning is the thing
+// being tuned, so thinking and the assistant's own words are kept in full. What is dropped is duplicated framing:
+// `--mode json` streams every token and then the finished message, so most of a trace is superseded fragments of the
+// messages that follow, and almost all of the size reduction comes from that alone.
 //
-// Thinking is kept in full. It is the thing being tuned: whether it wandered, whether it re-confirmed, whether it
-// found the risk or only walked the diff.
+// One deliberate clip: tool *results*. A `read` returns a whole file, which can be re-read from the repo at the commit
+// the run names, and it pushes the transcript past readable. The marker says how much was cut.
 
-const clip = (s, n) => (s.length <= n ? s : `${s.slice(0, n)}\n…[${s.length - n} chars clipped]`);
+const RESULT = 800;
 
-const argsBrief = (args = {}) => {
-  const entries = Object.entries(args);
-  if (!entries.length) return "";
-  return entries
-    .map(([k, v]) => {
-      const text = typeof v === "string" ? v : JSON.stringify(v);
-      return `${k}=${String(text).replace(/\s+/g, " ").slice(0, 120)}`;
-    })
-    .join(" ");
+const oneLine = (s) => String(s).replace(/\s+/g, " ").trim();
+
+const clip = (s, n) => {
+  const text = oneLine(s);
+  return text.length <= n ? text : `${text.slice(0, n)} …(+${text.length - n} chars)`;
 };
+
+const argsBrief = (args = {}) =>
+  Object.entries(args)
+    .map(([k, v]) => `${k}=${oneLine(typeof v === "string" ? v : JSON.stringify(v))}`)
+    .join(" ");
 
 export function renderTranscript(lines) {
   const events = lines
@@ -32,40 +34,38 @@ export function renderTranscript(lines) {
     .filter(Boolean);
 
   const out = [];
-  let turns = 0;
-  let first = null;
-  let last = null;
+  let turn = 0;
+  let turnStart = null;
+  const totals = { out: 0, cached: 0, findings: 0, tools: {} };
 
   for (const event of events) {
-    if (event.type === "session") {
-      out.push(`Session ${event.id || "?"} in ${event.cwd || "?"}`);
-      out.push("");
+    if (event.type === "turn_start") {
+      turnStart = event.timestamp ?? null;
       continue;
     }
 
     if (event.type === "message_end" && event.message?.role === "assistant") {
       const m = event.message;
       const u = m.usage || {};
-      const at = m.timestamp || event.timestamp;
-      if (first && at) last = at;
-      first = first ?? at;
+      totals.out += u.output || 0;
+      totals.cached += u.cacheRead || 0;
+      turn += 1;
 
-      out.push(`### Turn ${turns + 1}`);
       const bits = [];
-      if (u.output != null) bits.push(`${u.output} tokens out`);
+      if (turnStart && m.timestamp) bits.push(`${Math.round((m.timestamp - turnStart) / 1000)}s`);
+      if (u.output != null) bits.push(`${u.output} out`);
       if (u.cacheRead) bits.push(`${u.cacheRead} cached`);
-      if (u.input != null) bits.push(`${u.input} in`);
-      if (m.stopReason) bits.push(`stop: ${m.stopReason}`);
-      if (bits.length) out.push(`_${bits.join(" · ")}_`);
+      if (m.stopReason) bits.push(m.stopReason);
+      out.push(`--- turn ${turn} · ${bits.join(" · ")}`, "");
 
       for (const block of m.content || []) {
-        if (block.type === "thinking") out.push(`> ${clip(block.thinking || "", 4000).replace(/\n/g, "\n> ")}`);
-        else if (block.type === "text" && block.text?.trim()) out.push(block.text.trim());
+        if (block.type === "thinking") out.push(block.thinking?.trim() ? `[thinking]\n${block.thinking.trim()}\n` : "");
+        else if (block.type === "text" && block.text?.trim()) out.push(`${block.text.trim()}\n`);
         else if (block.type === "toolCall") {
-          // pi's block carries name + arguments; the tool_execution events use toolName + args. Accept both so a
-          // shape change renders as a name rather than as "undefined".
           const name = block.name ?? block.toolName ?? "?";
-          out.push(`**→ ${name}** \`${argsBrief(block.arguments ?? block.args)}\``);
+          totals.tools[name] = (totals.tools[name] || 0) + 1;
+          if (name === "report_finding") totals.findings += 1;
+          out.push(`[tool] ${name} ${argsBrief(block.arguments ?? block.args)}`);
         }
       }
       out.push("");
@@ -73,21 +73,24 @@ export function renderTranscript(lines) {
     }
 
     if (event.type === "tool_execution_end") {
-      const result = (event.result?.content || [])
+      const text = (event.result?.content || [])
         .filter((b) => b.type === "text")
         .map((b) => b.text)
-        .join("\n");
-      const mark = event.isError ? "**error**" : "result";
-      out.push(`  _${mark} (${event.durationMs ?? "?"}ms)_ ${clip(result.replace(/\s+/g, " ").trim(), 300)}`);
-      out.push("");
+        .join(" ");
+      out.push(`[result${event.isError ? " ERROR" : ""}] ${clip(text, RESULT)}\n`);
       continue;
     }
-
-    if (event.type === "turn_end") turns += 1;
   }
 
-  if (first && last) out.push(`---\n${turns} turn(s), ${Math.round((last - first) / 1000)}s of model time.`);
-  else out.push(`---\n${turns} turn(s).`);
+  const tools = Object.entries(totals.tools)
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, n]) => `${name}×${n}`)
+    .join(" ");
+  out.push(
+    "===",
+    `${turn} turn(s) · ${totals.out} tokens out · ${totals.cached} cached · ${totals.findings} finding(s)` +
+      (tools ? ` · ${tools}` : ""),
+  );
 
   return out.join("\n");
 }

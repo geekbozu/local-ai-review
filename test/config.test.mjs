@@ -136,41 +136,50 @@ test("the trace is on disk before the process ends", async () => {
   assert.equal(readFileSync(file, "utf8").trim().split("\n").length, 2);
 });
 
-test("the transcript keeps the thinking, the tools and what came back", async () => {
+test("the transcript keeps the whole reasoning and drops the framing", async () => {
   const { renderTranscript } = await import("../src/lib/transcript.mjs");
+  const reasoning = "The service filters by judge_id. " + "Then it checks the caller. ".repeat(80);
   const events = [
-    { type: "session", id: "s1", cwd: "/repo" },
+    { type: "turn_start", timestamp: 1000 },
     {
       type: "message_end",
       message: {
         role: "assistant",
-        timestamp: 1000,
+        timestamp: 30000,
         stopReason: "toolUse",
         usage: { output: 42, cacheRead: 500 },
         content: [
-          { type: "thinking", thinking: "The service filters by judge_id, which is not event-scoped." },
-          { type: "toolCall", name: "read", arguments: { path: "src/services/scores.ts" } }, // the shape pi actually emits
+          { type: "thinking", thinking: reasoning },
+          { type: "toolCall", name: "read", arguments: { path: "src/services/scores.ts" } },
+          { type: "toolCall", name: "report_finding", arguments: { path: "a.ts", severity: "high", body: "boom" } },
         ],
       },
     },
     { type: "tool_execution_end", durationMs: 12, isError: false, result: { content: [{ type: "text", text: "file body" }] } },
     { type: "turn_end" },
-    {
-      type: "message_end",
-      message: { role: "assistant", timestamp: 60000, stopReason: "stop", usage: { output: 8 }, content: [{ type: "text", text: "Nothing else to report." }] },
-    },
-    { type: "turn_end" },
   ].map((e) => JSON.stringify(e));
 
   const md = renderTranscript(events);
-  assert.match(md, /### Turn 1/);
-  assert.match(md, /event-scoped/, "thinking survives");
-  assert.match(md, /\*\*→ read\*\*/, "the tool call is shown with its argument");
-  assert.match(md, /path=src\/services\/scores\.ts/);
-  assert.match(md, /file body/, "the tool result is shown");
-  assert.match(md, /cached/, "usage is shown");
-  assert.match(md, /Nothing else to report\./);
-  assert.match(md, /2 turn\(s\), 59s of model time/);
+  assert.match(md, /--- turn 1 · 29s · 42 out · 500 cached · toolUse/);
+  assert.ok(md.includes(reasoning.trim()), "thinking is kept whole, not clipped");
+  assert.match(md, /\[thinking\]/);
+  assert.match(md, /\[tool\] read path=src\/services\/scores\.ts/);
+  assert.match(md, /\[tool\] report_finding/, "findings are visible as tool calls");
+  assert.match(md, /\[result\] file body/);
+  assert.match(md, /1 turn\(s\) · 42 tokens out · 500 cached · 1 finding\(s\)/);
+  assert.ok(!md.includes('"type"'), "no JSON envelopes leak into the transcript");
+});
+
+test("a long tool result is clipped and says so", async () => {
+  const { renderTranscript } = await import("../src/lib/transcript.mjs");
+  const md = renderTranscript([
+    JSON.stringify({
+      type: "tool_execution_end",
+      durationMs: 2,
+      result: { content: [{ type: "text", text: "x".repeat(5000) }] },
+    }),
+  ]);
+  assert.match(md, /4200 chars/);
 });
 
 test("a torn last line does not lose the transcript", async () => {

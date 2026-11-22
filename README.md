@@ -68,8 +68,8 @@ Second, one job:
 
 ### Requirements on the runner
 
-**`bubblewrap` must be installed.** The review runs inside it, and the action skips with a notice rather than running
-unsandboxed when it is missing — an advisory review that silently loses its boundary is worse than no review.
+**`bubblewrap` must be installed.** The review runs inside it, and without it the job **fails** rather than running
+unsandboxed — a green run that quietly dropped its boundary is worse than a red one.
 
 ```bash
 apt-get update && apt-get install -y bubblewrap   # once per runner, not per job

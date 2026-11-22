@@ -111,5 +111,11 @@ artifact is as visible as the repository is.
   grading and coverage rather than permissions.
 - **A read-only mount still allows reading.** A file that is world-readable on the runner and not hidden by a bind
   remains readable. Only what is bound or hidden is out of reach.
+- **The child runs as root inside the sandbox, minus every capability.** No `CAP_DAC_OVERRIDE` follows from that: it
+  cannot create a file in a directory owned by another uid. The two files it writes — findings and notes — are therefore
+  created by the parent before the spawn, and anything else it needs to write belongs in the checkout.
+- **An extension that fails ends the run.** A review that cannot record a finding is not a review, and the alternative was
+  measured: a permission error the agent could not fix cost seventy-six turns of attempted mounts and FUSE before the run
+  reported success with nothing to post.
 - **The posting step holds the token.** It is a separate process with no model in it, which is what makes it safe to
   give one step a credential.

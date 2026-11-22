@@ -96,6 +96,10 @@ A consuming repo adds `.ai-review.json` and one job. See the README.
 | The finding log names severity, path and body | **Proven** in tests; every run since has used an older cached tag (F19) |
 | Severity is stable for one defect | **Not proven, and the opposite was measured** — F20 |
 | Coverage gate names an unopened file | **Proven** — it names them, and on most runs there are two or three. The gate works; the reviews are what is incomplete |
+| The review runs inside the sandbox, end to end | **Proven** — six turns, tool calls, one finding reported from inside `bwrap` and posted inline, exited on its own in 4m16s, nothing left in the runner's temp |
+| The endpoint key is not in the child's process | **Proven by construction** — the child's environment is built from a whitelist and holds a per-run proxy token; the run's own model calls went through that proxy |
+| A finished review exits | **Proven the hard way** — an `http` server kept the event loop alive, so a finished review hung until the job was cancelled, three times, and was read as a slow model |
+| A model error is retried, and a run of them fails the run | **Proven in tests**; no live run has produced three consecutive failures |
 | One review posts as inline threads, and a re-run posts none | **Proven** — three threads, then `alreadyPresent: 3, posted: 0` |
 | Cache stays warm across turns, including after a steer | **Proven** — per-turn cache growth across a capped run |
 | Credential stripping blocks a push | **Proven** by mechanism: with no persisted header and no helper, git cannot authenticate |
@@ -177,6 +181,22 @@ capabilities dropped. The endpoint key no longer exists in that process — a lo
 a per-run token. The poster reads the severity floor from the base ref instead of the working tree, and posted bodies
 are length-capped, have `@` escaped, and reject image and raw HTML syntax. `scope.js` is deleted rather than extended:
 a guard that argues with intent loses, and it had already lost. See `docs/security.md`.
+
+**2026-11-22 — the sandbox worked on the sixth try, and every failure in between was a real one.** A sandbox breaks every
+assumption about where things live. In order: `--uid` without a user namespace put the child on the overflow uid, where it
+could write nowhere (and chowning the target did not help); `bwrap` then could not find `pi`, because the sandbox PATH is
+not the job's PATH; then it could not find the extensions, because hiding `_work/_actions` hid the action's own
+`report_finding`, `turn-cap` and `truncate-results` as well; then `git` refused the checkout as "dubious ownership", caused
+by this action having chowned it while trying to drop privileges; then the proxy's `http` server held the event loop open,
+so a finished review hung until the job was cancelled — three runs were read as a slow model before that was found; and
+last, `report_finding` and `turn-cap` failed with `EACCES`, because the runner's temp directory belongs to the runner's uid
+and the sandbox has no `CAP_DAC_OVERRIDE`. The response to that one was the worst of the lot: the agent spent seventy-six
+turns trying `mount --bind`, `unshare` and FUSE to get around a permission error it could never fix.
+
+The fixes are in the code and each has a comment naming what it measured: files the child writes are created by the parent
+before the spawn; an `Extension error` ends the run; the proxy is unref'd and closed; every git call passes
+`safe.directory` for the tree it was given; and the prompt says the environment is fixed, because turns spent escaping are
+turns not spent reviewing. The final run is the one that counts: six turns, one finding, posted, exited on its own.
 
 **2026-11-22 — most runs leave two or three changed files unread.** The coverage gate named them every time, which is
 it working. The decision was not to enforce a read (D18): from outside, a file skipped as irrelevant and a file never

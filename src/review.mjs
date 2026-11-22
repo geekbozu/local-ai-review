@@ -303,7 +303,10 @@ export function writeAgentDir({ model, baseUrl, apiKeyEnv, settings }) {
       {
         compaction: { enabled: true, reserveTokens: Math.round(settings.contextWindow * 0.19) },
         httpIdleTimeoutMs: settings.providerTimeoutMs > 0 ? settings.providerTimeoutMs : "disabled",
-        retry: { provider: { maxRetries: 0 } },
+        // Five agent-level retries, stated rather than inherited: the client's default is three, and a retry policy that
+        // nobody chose is a policy nobody can reason about. Provider-level stays 0 — the agent retry covers the same
+        // failure, and both at once retries one request twice over.
+        retry: { maxRetries: 5, provider: { maxRetries: 0 } },
       },
       null,
       2,

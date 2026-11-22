@@ -9,39 +9,49 @@
 // narrower question instead of assuming it has the whole file.
 
 const LIMIT = Number(process.env.AI_REVIEW_RESULT_CHARS || 8000);
-const KEEP = Math.floor(LIMIT * 0.6);
+const MARKER_ROOM = 120;
 
 const size = (content) =>
   (content || []).reduce((n, b) => n + (b.type === "text" ? String(b.text || "").length : 0), 0);
 
 export default function (pi) {
   pi.on("tool_result", async (event) => {
-    if (size(event.content) <= LIMIT) return;
+    const before = size(event.content);
+    if (before <= LIMIT) return;
 
-    // Keep the head and the tail: the head carries the beginning of a file or command output, the tail carries the
-    // error a command ended with. The middle is what a reader skips.
     const content = [];
-    let seen = 0;
+    let emitted = 0;
+    let truncated = false;
 
     for (const block of event.content || []) {
+      if (truncated) break;
       if (block.type !== "text") {
         content.push(block);
         continue;
       }
+
       const text = String(block.text || "");
-      if (seen < KEEP) {
-        content.push({ ...block, text: text.slice(0, KEEP - seen) });
-        seen += text.length;
+      const remaining = LIMIT - emitted;
+      if (text.length <= remaining) {
+        content.push(block);
+        emitted += text.length;
         continue;
       }
-      if (seen < LIMIT - KEEP) {
-        const tail = text.slice(-(LIMIT - KEEP));
-        content.push({ ...block, text: `\n\n[… ${text.length - (LIMIT - KEEP)} characters omitted …]\n\n${tail}` });
-        seen = LIMIT;
-      }
+
+      // This block alone overflows what is left: keep its head and its tail, because the head is where a file starts
+      // and the tail is where a command's error ends. The middle is what a reader skips anyway.
+      const headLength = Math.max(0, Math.floor((remaining - MARKER_ROOM) * 0.6));
+      const tailLength = Math.max(0, remaining - MARKER_ROOM - headLength);
+      const head = text.slice(0, headLength);
+      const tail = tailLength ? text.slice(-tailLength) : "";
+      const omitted = text.length - head.length - tail.length;
+
+      content.push({ ...block, text: `${head}\n\n[… ${omitted} characters omitted …]\n\n${tail}` });
+      emitted = LIMIT;
+      truncated = true;
     }
 
-    console.error(`[truncate] ${event.toolName}: ${size(event.content)} chars -> ${size(content)}`);
+    console.error(`[truncate] ${event.toolName}: ${before} chars -> ${size(content)} (limit ${LIMIT})`);
     return { content };
   });
 }

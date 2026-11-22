@@ -16,6 +16,9 @@ import { renderTranscript } from "./lib/transcript.mjs";
 import { parseDiff, touchedPaths } from "./lib/diff.mjs";
 import { buildPrompt } from "./lib/prompt.mjs";
 import { restoreRulesFromBase } from "./lib/rules.mjs";
+
+// Pinned by commit: pi fetches it once, and a checkout of that commit is never refetched on later runs.
+const PI_RULES = process.env.PI_RULES || "git:github.com/code-yeongyu/pi-rules@96b65ff340de262e4fd7c09b191b97b5f3e67a19";
 import { riskHints } from "./lib/triage.mjs";
 
 const git = (args, dir = process.cwd()) =>
@@ -69,7 +72,8 @@ function watch({ onFinding, onTurn }) {
 // The model catalogue is generated from inputs so no repository has to carry one. This is also the only place the
 // key is placed, and it goes in with $NAME so it is never written to disk.
 export function writeAgentDir({ model, baseUrl, apiKeyEnv, settings }) {
-  const dir = join(tmpdir(), `ai-review-agent-${process.pid}`);
+  // Supplied by the action when the runner keeps a directory between jobs, so pi's `-e` package cache persists.
+  const dir = process.env.PI_CODING_AGENT_DIR || join(tmpdir(), `ai-review-agent-${process.pid}`);
   mkdirSync(dir, { recursive: true });
 
   // A model with no thinking parameter gets no compatibility shim: sending reasoning_effort to a template that does not
@@ -212,8 +216,9 @@ export async function run() {
     "-e", join(import.meta.dirname, "extensions", "truncate-results.js"),
     "-e", join(import.meta.dirname, "extensions", "scope.js"),
     // pi-rules is the loader: it matches each rule's paths against the file being worked on and injects what applies,
-    // at agent start and after every tool result. Path supplied by the job; absent, the review simply has no rules.
-    ...(env.PI_RULES_EXT ? ["-e", env.PI_RULES_EXT] : []),
+    // at agent start and after every tool result. Given as a package spec rather than a path, so pi installs and caches
+    // it; pinned to a commit, which pi never refetches once checked out.
+    ...(PI_RULES ? ["-e", PI_RULES] : []),
     "--model", `local/${model}`,
   ];
 

@@ -93,39 +93,14 @@ runs:
           npm i -g @earendil-works/pi-coding-agent
         fi
 
-    # Not on npm, so pinned by commit and cloned. It loads rules on demand — matching each rule's paths against the
-    # file being worked on — instead of the action concatenating them into the prompt.
-    - name: Install pi-rules
-      if: steps.configured.outputs.ready == 'true'
-      shell: bash
-      env:
-        PI_RULES_SHA: 96b65ff340de5c5b7d80a32a91d6a1e6b9b2f2a4
-      run: |
-        set -euo pipefail
-        dest="$RUNNER_TEMP/pi-rules"
-        # Cached beside the working directory, which is the one directory a self-hosted runner keeps between jobs
-        # (it is the `_work` volume). On a hosted runner this is a per-job path, so it simply does not help — and does
-        # not hurt. Keyed by the pinned commit, so a version bump re-fetches and nothing else does.
-        cache="$(dirname "$GITHUB_WORKSPACE")/.pi-cache"
-        dest="$cache/$PI_RULES_SHA"
-        if [ -f "$dest/src/index.ts" ] && [ -d "$dest/node_modules/picomatch" ]; then
-          echo "pi-rules already installed at $dest"
-        else
-          mkdir -p "$cache"
-          git init -q "$dest"
-          git -C "$dest" remote add origin https://github.com/code-yeongyu/pi-rules
-          git -C "$dest" fetch -q --depth 1 origin "$PI_RULES_SHA"
-          git -C "$dest" checkout -q "$PI_RULES_SHA"
-          npm install --prefix "$dest" --omit=dev --no-audit --no-fund --silent
-        fi
-        test -f "$dest/src/index.ts"
-        echo "PI_RULES_EXT=$dest/src/index.ts" >> "$GITHUB_ENV"
-
     - name: Review
       if: steps.configured.outputs.ready == 'true'
       shell: bash
       env:
         PI_BIN: pi
+        # Pi caches `-e` packages under its agent directory. Pointed at the parent of the workspace, which a
+        # self-hosted runner keeps between jobs, the pinned clone is fetched once per board rather than per job.
+        PI_CODING_AGENT_DIR: ${{ github.workspace }}/../.pi-cache
         BASE_REF: ${{ inputs.base-ref }}
         AI_REVIEW_MODEL: ${{ inputs.model }}
         AI_REVIEW_BASE_URL: ${{ inputs.base-url }}

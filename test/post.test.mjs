@@ -141,7 +141,7 @@ test("a quote spanning two lines anchors on its first line", () => {
 
 test("markers in existing comments are read back so a re-run can skip them", () => {
   const { posted } = buildReview({ findings, diff: DIFF });
-  const existing = posted.map((p) => ({ body: p.body }));
+  const existing = posted.map((p) => ({ body: p.body, user: { login: "github-actions[bot]", type: "Bot" } }));
   const markers = existingMarkers(existing);
   assert.equal(markers.size, 2);
   assert.ok(markers.has(posted[0].marker));

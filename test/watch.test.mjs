@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { dirname } from "node:path";
-import { watch, resolveExecutable } from "../src/review.mjs";
+import { watch, resolveExecutable, startKeyProxy } from "../src/review.mjs";
 
 // The line this produces is the only per-run record that survives a rerun — artifacts are replaced by the next
 // attempt — so it has to say which finding was found. It said `undefined undefined` twice: first because the
@@ -58,4 +58,19 @@ test("a failed model call is fatal before the first turn completes, and not afte
   const w2 = watch({ onFinding: () => {}, onTurn: () => {}, onFatal: (m) => quiet.push(m) });
   w2(JSON.stringify({ type: "message_end", message: { role: "assistant", stopReason: "stop" } }) + "\n");
   assert.equal(quiet.length, 0, "a normal turn is not fatal");
+});
+
+// The review finished, printed its summary and hung until cancelled: an http server keeps the event loop alive, which
+// is why the proxy is unref'd. It still has to serve, and to refuse anything but the per-run token.
+test("the key proxy serves only the per-run token", async () => {
+  const proxy = await startKeyProxy({ target: "http://127.0.0.1:9/v1", realKey: "unused" });
+  assert.equal(proxy.server.listening, true);
+
+  const denied = await fetch(`${proxy.baseUrl}/v1/models`);
+  assert.equal(denied.status, 401, "no token, no forwards");
+
+  const allowed = await fetch(`${proxy.baseUrl}/v1/models`, { headers: { authorization: `Bearer ${proxy.token}` } });
+  assert.equal(allowed.status, 502, "the token is accepted and the dead upstream is reported as one");
+
+  proxy.server.close();
 });

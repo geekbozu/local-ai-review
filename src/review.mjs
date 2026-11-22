@@ -198,6 +198,9 @@ export async function startKeyProxy({ target, realKey }) {
   });
 
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  // An `http` server keeps the event loop alive, so the whole review finished, printed its summary and then hung until
+  // the job was cancelled. Unref'd, it still answers while the child is alive and cannot outlive the work.
+  server.unref();
   return { server, token, baseUrl: `http://127.0.0.1:${server.address().port}` };
 }
 
@@ -586,6 +589,13 @@ export async function run() {
   }
 
   console.log(JSON.stringify({ ...result, config: undefined }));
+
+  // A run that lost the model part-way through is not a review that found nothing. The summary is printed first so the
+  // evidence survives, and the exit code says what happened: advisory, so the colour blocks nothing, but a green run
+  // that reviewed half a change is a lie someone would act on.
+  if (failures.length) {
+    throw new Error(`the model call failed ${failures.length} time(s); this review is incomplete`);
+  }
   return result;
 }
 

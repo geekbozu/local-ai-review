@@ -7,7 +7,8 @@
 // So both doors are held. A path is allowed if it resolves inside the working directory; anything else is refused with
 // the reason, on either tool.
 
-import { resolve, sep, isAbsolute } from "node:path";
+import { resolve } from "node:path";
+import { insideRepo } from "../lib/path.mjs";
 
 const ALLOWED = [/^\/dev\/(null|stdin|stdout|stderr)$/, /^\/dev\/fd\//];
 
@@ -16,8 +17,7 @@ const PATHS_IN = /(?:^|[\s'"=:(;|&<>])(\/[^\s'"`;|&<>)]+)/g;
 
 export default function (pi) {
   const cwd = resolve(process.cwd());
-  const root = cwd + sep;
-  const inside = (path) => resolve(cwd, path).startsWith(root);
+  const inside = (path) => insideRepo(cwd, path);
   const allowed = (path) => ALLOWED.some((re) => re.test(path));
 
   const refuse = (path) => ({

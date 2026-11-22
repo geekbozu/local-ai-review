@@ -83,10 +83,10 @@ runs:
     # Machine tooling, not a project dependency: it must not enter any consumer's package.json.
     # Idempotent: on a self-hosted runner the tool is already there from the previous job, and installing it again is
     # a network round trip per job for nothing. On a hosted runner this degrades to the old behaviour.
-    # Required, not optional, and failing is the point. A runner without bubblewrap is misconfigured, and that is worth
-    # a red X rather than a green run that quietly reviewed nothing — `continue-on-error` keeps it advisory, so the
-    # colour costs nobody a merge. This action does not install bubblewrap: a step that installs a sandbox runs outside
-    # the sandbox.
+    # Required, not optional, and failing is the point: a runner without bubblewrap is misconfigured, and a red X says so
+    # where a green run that quietly reviewed nothing does not. This action does not install bubblewrap — a step that
+    # installs a sandbox runs outside the sandbox. Whether the failure blocks a merge is the consumer's `continue-on-error`,
+    # not something a step can promise.
     - name: Sandbox
       id: sandbox
       if: steps.configured.outputs.ready == 'true'

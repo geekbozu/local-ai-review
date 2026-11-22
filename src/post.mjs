@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { parseDiff, resolveQuote, normalise } from "./lib/diff.mjs";
 import { openedFiles, uncovered } from "./lib/coverage.mjs";
-import { loadConfig, loadConfigFromRef } from "./lib/config.mjs";
+import { loadConfig, loadConfigFromRef, matchesAny } from "./lib/config.mjs";
 
 export function loadFindings(file) {
   let raw = "";
@@ -74,7 +74,7 @@ export const sanitise = (body) =>
     .replace(/@/g, "\\@")
     .slice(0, MAX_BODY);
 
-export function buildReview({ findings, diff, floor = "low" }) {
+export function buildReview({ findings, diff, floor = "low", ignore = [] }) {
   const files = parseDiff(diff);
   const min = SEVERITY[floor] ?? 3;
 
@@ -83,6 +83,12 @@ export function buildReview({ findings, diff, floor = "low" }) {
   const seen = new Set();
 
   for (const f of findings) {
+    // `ignore` is the repository's own list of paths it does not want commented on. It was documented, validated and
+    // then never read, which is worse than not having it: the config said something the bot did not do.
+    if (f.path && matchesAny(normalise(f.path), ignore)) {
+      dropped.push({ reason: "ignored path", path: f.path, quote: f.quote });
+      continue;
+    }
     if (f._malformed !== undefined) {
       dropped.push({ reason: "not JSON", raw: String(f._malformed).slice(0, 120) });
       continue;
@@ -255,7 +261,7 @@ async function main() {
   // raise is a review that can silence itself. Base ref, matching the rules, so a PR cannot rewrite the config that
   // decides how its own findings are graded.
   const floor = frozen ? frozen.floor : (loadConfigFromRef(base, ws) || loadConfig())?.severityFloor || "low";
-  const { posted, dropped } = buildReview({ findings: loadFindings(findingsFile), diff, floor });
+  const { posted, dropped } = buildReview({ findings: loadFindings(findingsFile), diff, floor, ignore: frozen?.ignore || [] });
 
   // Everything the run found and did not post, with the body a reader would have needed. The summary has room for a
   // folded list of reasons; this is where a low finding or an unanchorable one stays legible. It travels with the
@@ -287,7 +293,15 @@ async function main() {
   const me = await api("/app")
     .then((a) => (a?.slug ? `${a.slug}[bot]` : null))
     .catch(() => api("/user").then((u) => u?.login ?? null).catch(() => null));
-  const existing = existingMarkers(await api(`/repos/${repo}/pulls/${pr}/comments?per_page=100`), { login: me });
+  // Paginated: past the first hundred comments a re-run would re-post everything, and a busy pull request reaches that.
+  const seenComments = [];
+  for (let page = 1; page <= 5; page += 1) {
+    const batch = await api(`/repos/${repo}/pulls/${pr}/comments?per_page=100&page=${page}`);
+    if (!Array.isArray(batch) || !batch.length) break;
+    seenComments.push(...batch);
+    if (batch.length < 100) break;
+  }
+  const existing = existingMarkers(seenComments, { login: me });
   const fresh = posted.filter((p) => !existing.has(p.marker));
   const skipped = posted.length - fresh.length;
 

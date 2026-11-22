@@ -55,8 +55,9 @@ to write a benchmark and run it. That work is discarded with the runner, and it 
 
 ## The sandbox
 
-Required. If `bwrap` is not on the runner, the review **skips with a notice** — it does not fall back to running
-unsandboxed, because an advisory review that silently loses its boundary is worse than no review.
+Required. If `bwrap` is not on the runner the job **fails**, with an error naming the install command — it does not
+skim a notice and it does not fall back to running unsandboxed. A green run that quietly dropped its boundary is the
+worst of the three outcomes.
 
 Install it on the runner (once, not per job):
 
@@ -73,7 +74,6 @@ The invocation, in shape:
 ```
 --ro-bind / /                                 readable, not writable
 --bind "$GITHUB_WORKSPACE" "$GITHUB_WORKSPACE"  the only writable tree
---ro-bind "$cache" "$cache"                   shared, unpoisonable
 --tmpfs /tmp --dev /dev --proc /proc
 --tmpfs /_work/_actions                       the action's own source is not visible
 --tmpfs /root                                 the runner's own home is empty
@@ -138,3 +138,10 @@ artifact is as visible as the repository is.
   reported success with nothing to post.
 - **The posting step holds the token.** It is a separate process with no model in it, which is what makes it safe to
   give one step a credential.
+- **The bot is a bounded exfiltration channel, and the bound is 2000 characters.** Nothing stops a convinced agent
+  pasting the contents of a world-readable file into a finding body, where it is posted publicly. What the sandbox
+  removes is the *credential* that would make that worth doing, and what the sanitiser removes is the beacon. A
+  repository that must not leak file contents should not run a reviewer over it with a public pull request.
+- **Rules are restored before the agent runs, not protected from it afterwards.** The pinned rule loader re-reads files
+  from the checkout as tools run, and the checkout is writable, so an agent steered mid-run can edit the rules that
+  judge it. The files that matter at *post time* are frozen, which is a different thing.

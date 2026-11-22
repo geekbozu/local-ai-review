@@ -352,7 +352,10 @@ export async function run() {
   rmSync(frozenDir, { recursive: true, force: true });
   mkdirSync(frozenDir, { recursive: true });
   writeFileSync(join(frozenDir, "diff.txt"), diff);
-  writeFileSync(join(frozenDir, "meta.json"), JSON.stringify({ floor: config.severityFloor, baseRef, head }));
+  writeFileSync(
+    join(frozenDir, "meta.json"),
+    JSON.stringify({ floor: config.severityFloor, ignore: config.ignore, baseRef, head }),
+  );
 
   const rules = restoreRulesFromBase(workspace, baseRef, config);
   // Risk hints order the agent's attention; they do not scale its effort. Thoroughness is uniform, the budget is
@@ -631,7 +634,7 @@ export async function run() {
         "| Findings | " + findings + " |",
         "| Files changed | " + touched.length + " |",
         "| Files opened | " + opened.size + " |",
-        "| Rules | " + (rules ? "base ref" : "none declared") + " |",
+        "| Rules | " + (config.rules.length ? rules.restored.length + " from the base ref" : "none declared") + " |",
         "| Trace | `ai-review-run` artefact: `transcript.md` to read, `events.jsonl` for the evidence, `prompt.txt` for what it was told |",
         "",
         missing.length ? "**Never opened:** " + missing.map((f) => "`" + f + "`").join(", ") : "",

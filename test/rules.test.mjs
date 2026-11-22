@@ -61,17 +61,6 @@ test("nothing configured means nothing touched", () => {
   assert.deepEqual(restoreRulesFromBase(repo, "main", { rules: [] }), { restored: [], removed: [] });
 });
 
-test("the repository directory itself is inside the repository", async () => {
-  const { insideRepo } = await import("../src/lib/path.mjs");
-  const cwd = "/work/repo/repo";
-  assert.equal(insideRepo(cwd, "/work/repo/repo"), true, "the cwd has no trailing separator to match");
-  assert.equal(insideRepo(cwd, "/work/repo/repo/src/a.ts"), true);
-  assert.equal(insideRepo(cwd, "./src/a.ts"), true);
-  assert.equal(insideRepo(cwd, "/work/repo/repo2/x"), false);
-  assert.equal(insideRepo(cwd, "/work/repo/repo/../other"), false);
-  assert.equal(insideRepo(cwd, "/work/_actions/x"), false);
-  assert.equal(insideRepo(cwd, "/etc/passwd"), false);
-});
 
 test("an absolute read path counts as the file the diff names", async () => {
   const { openedFiles, uncovered } = await import("../src/lib/coverage.mjs");

@@ -16,6 +16,7 @@ export function parseDiff(text) {
   let file = null;
   let newLine = 0;
   let oldLine = 0;
+  let hunkSeen = false;
 
   for (const line of text.split("\n")) {
     const raw = stripCr(line);
@@ -23,14 +24,21 @@ export function parseDiff(text) {
     if (header) {
       file = { path: normalise(header[2]), added: [], context: [], removed: 0 };
       files.set(file.path, file);
+      hunkSeen = false;
       continue;
     }
-    if (!file || raw.startsWith("+++") || raw.startsWith("---") || raw.startsWith("index ")) continue;
+    if (!file) continue;
+    // Everything before a hunk is metadata: `index`, `old mode`, `new file mode`, `rename from/to`, `similarity index`,
+    // `Binary files ... differ`. Any of it landing in `context` invents a line number, and a quote matching that text
+    // would anchor a finding to line 1.
+    if (!hunkSeen && !HUNK.test(raw)) continue;
+    if (raw.startsWith("+++") || raw.startsWith("---") || raw.startsWith("index ")) continue;
 
     const hunk = HUNK.exec(raw);
     if (hunk) {
       oldLine = Number(hunk[1]);
       newLine = Number(hunk[2]);
+      hunkSeen = true;
       continue;
     }
 

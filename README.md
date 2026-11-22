@@ -40,7 +40,7 @@ action prints a notice and exits 0, so adding the workflow everywhere is safe:
 | `enabled` | `true` | `false` opts out without deleting the file |
 | `model` | action input | Override the model per repo |
 | `modelSettings` | see below | What the model call needs: sampling, budgets, whether it thinks at all |
-| `resultChars` | `40000` | Cap on one tool result. A backstop against a whole-file read owning the run, not a reading policy |
+| `resultChars` | `64000` | Cap on one tool result. A backstop against a whole-file read owning the run, not a reading policy |
 | `timeBudgetMinutes` | `0` | Wall clock, 0 = off. Effort is allocated by turns; this is for a wedged run |
 
 `modelSettings` is where the things that change when the model changes live, so they can be edited without a release:

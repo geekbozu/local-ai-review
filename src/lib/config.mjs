@@ -173,6 +173,8 @@ export function matchesAny(path, globs) {
 
 // A rule file with `paths:` frontmatter applies only to matching files; one without applies to the whole review.
 // This is the same test pi-rules applies, so the reviewer and the coding agent judge by the same selection.
+// Not called by the review: the rule matching that matters happens in the pinned pi-rules extension, against the base
+// ref. This exists so a test can assert the two agree, and it is only ever correct for the commit that is pinned.
 export function ruleApplies(content, file) {
   const fence = /^---\r?\n([\s\S]*?)\r?\n---/.exec(content);
   if (!fence) return true;

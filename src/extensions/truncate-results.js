@@ -11,7 +11,7 @@
 // A backstop, not a reading policy: `read` already takes offset/limit and caps itself at 2000 lines or 50 KB, so
 // narrowing a read is the prompt's job. This only stops a pathological result — a whole-file `cat` through bash,
 // a recursive grep with no head — from owning the rest of the run.
-const LIMIT = Number(process.env.AI_REVIEW_RESULT_CHARS || 40000);
+const LIMIT = Number(process.env.AI_REVIEW_RESULT_CHARS || 64000);
 const MARKER_ROOM = 120;
 
 const size = (content) =>

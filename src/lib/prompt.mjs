@@ -5,7 +5,7 @@
 
 import { execFileSync } from "node:child_process";
 import { matchesAny, ruleApplies } from "./config.mjs";
-import { triageBrief } from "./triage.mjs";
+import { thoroughBrief } from "./triage.mjs";
 
 const CAP = 12000; // characters of rules; beyond this the rules crowd out the diff
 
@@ -58,16 +58,20 @@ Rules for what you report:
 
 You have the whole checkout and you may run things to check a suspicion. Do not commit or push.
 
-Work through every changed file before you finish, then reply with a short summary of what you checked and what you
-did not.`;
+Work through every changed file before you finish. Give a one-line change the same attention as a rewrite: the size
+of a diff says nothing about the risk in it.
 
-export function buildPrompt({ rules, diff, touched, severityFloor = "low", triage }) {
+And stop when the work is done. Once you have either found something or satisfied yourself that a file is correct,
+move on — do not spend turns re-confirming that nothing is wrong. If you end with nothing to report, say what you
+checked and why it held up; that is a result, not a failure.`;
+
+export function buildPrompt({ rules, diff, touched, severityFloor = "low", hints }) {
   const files = touched.map((f) => `- ${f}`).join("\n");
   return [
     INSTRUCTIONS(severityFloor),
     rules ? `## Rules\n\n${rules}` : "",
     `## Changed files\n\n${files}`,
-    triage ? triageBrief(triage) : "",
+    hints ? thoroughBrief(hints) : "",
     `## The change\n\n${diff}`,
   ]
     .filter(Boolean)

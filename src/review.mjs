@@ -12,7 +12,7 @@ import { normaliseBaseUrl } from "./lib/url.mjs";
 import { openedFiles, uncovered } from "./lib/coverage.mjs";
 import { parseDiff, touchedPaths } from "./lib/diff.mjs";
 import { readRules, buildPrompt } from "./lib/prompt.mjs";
-import { triage } from "./lib/triage.mjs";
+import { riskHints } from "./lib/triage.mjs";
 
 const git = (args, dir = process.cwd()) =>
   new Promise((resolve, reject) => {
@@ -134,13 +134,12 @@ export async function run() {
   }
 
   const rules = readRules(process.cwd(), baseRef, config, touched);
-  // Effort is allocated from the paths touched, not from the clock: a lockfile PR should be cheap and an RLS PR
-  // should not be. The turn budget follows the same signal.
-  const budget = triage(touched, { maxTurns: config.maxTurns });
-  const prompt = buildPrompt({ rules, diff, touched, severityFloor: config.severityFloor, triage: budget });
+  // Risk hints order the agent's attention; they do not scale its effort. Thoroughness is uniform, the budget is
+  // one number, and what is bounded is the work rather than how much any particular line deserves.
+  const hints = riskHints(touched);
+  const prompt = buildPrompt({ rules, diff, touched, severityFloor: config.severityFloor, hints });
   console.error(
-    `[ai-review] triage: ${budget.highRisk.length} high-risk, ${budget.semantic.length} semantic, ` +
-      `${budget.mechanical.length} mechanical — budget ${budget.turns} turns`,
+    `[ai-review] ${touched.length} file(s), ${hints.highRisk.length} in a high-risk area — budget ${config.maxTurns} turns`,
   );
 
   const agentDir = writeAgentDir({

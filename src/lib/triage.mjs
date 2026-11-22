@@ -1,22 +1,12 @@
-// How much review does this change warrant?
+// Where is the risk concentrated in this change?
 //
-// Uniform effort is why a two-file PR ran 66 minutes: the prompt asked for the same depth on a lockfile as on an RLS
-// policy. The signal is cheap and deterministic — the paths touched — so it is computed here rather than hoped for
-// from the prompt. The model still decides what it finds; this decides how long it may look.
+// This is a hint for ordering attention, not a measure of how much to care. Effort does not scale with diff size or
+// file class: a one-line change to a rules file or an RLS policy is the most expensive thing a change can touch,
+// and a long mechanical diff is usually the least. So nothing here says "skim", and nothing here sets a budget —
+// the budget is one number, the agent is expected to be thorough inside it, and what is bounded is the work.
 
-const MECHANICAL = [
-  /(^|\/)(pnpm-lock\.yaml|package-lock\.json|yarn\.lock)$/,
-  /\.lock$/,
-  /(^|\/)generated\//,
-  /(^|\/)migrations\/.*\.sql$/, // read carefully, but the surrounding file rarely needs chasing
-  /(^|\/)types\/database\.ts$/, // generated
-  /^Docs\/.*\.md$/,
-  /\.md$/,
-];
-
-// Where a defect is expensive: auth, data access, money, and the rules that everything else is judged by.
 const HIGH_RISK = [
-  /migrations\//,
+  /migrations?\//,
   /\.sql$/,
   /(^|\/)src\/services\//,
   /(^|\/)supabase\/functions\//,
@@ -24,56 +14,25 @@ const HIGH_RISK = [
   /rls|policy|permission|role/i,
   /payment|credit|money|price|invoice|refund/i,
   /secret|token|key/i,
-  /(^|\/)\.pi\/rules\//,
+  /(^|\/)\.pi\/(rules|skills)\//,
+  /(^|\/)\.github\/workflows\//,
 ];
 
-export const MECHANICAL_TURNS = 5;
-export const SEMANTIC_TURNS = 3;
-export const HIGH_RISK_TURNS = 10;
-
-export function triage(files, { maxTurns = 100 } = {}) {
-  const mechanical = [];
-  const semantic = [];
-  const highRisk = [];
-
-  for (const file of files) {
-    if (MECHANICAL.some((re) => re.test(file))) mechanical.push(file);
-    else semantic.push(file);
-
-    if (HIGH_RISK.some((re) => re.test(file))) highRisk.push(file);
-  }
-
-  const turns = Math.min(maxTurns, MECHANICAL_TURNS + semantic.length * SEMANTIC_TURNS + highRisk.length * HIGH_RISK_TURNS);
-
-  return { mechanical, semantic, highRisk, turns, maxTurns, capped: turns >= maxTurns };
+export function riskHints(files) {
+  return { highRisk: files.filter((f) => HIGH_RISK.some((re) => re.test(f))), files };
 }
 
-// The prompt states the allocation rather than the model inventing one, so a low-risk change is cheap on purpose
-// and a costly one is expensive on purpose.
-export function triageBrief(t) {
-  const list = (files) => files.map((f) => "`" + f + "`").join(", ");
-  const lines = [
-    "## Effort",
-    "",
-    `You have a budget of about ${t.turns} turn(s) for this change. Spend them where the risk is.`,
-    "",
-  ];
+// Said in the prompt because "be thorough" alone invites both grinding and skimming. The two halves matter equally:
+// equally hard on every line, and stop when you have either found something or satisfied yourself.
+export function thoroughBrief({ highRisk }) {
+  if (!highRisk.length) return "";
 
-  if (t.highRisk.length) {
-    lines.push(`- **Look hard at** ${list(t.highRisk)} — read the file, follow the callers, and say what breaks. This is where a defect is expensive.`);
-  }
-  if (t.semantic.length) {
-    lines.push(`- **Read** ${list(t.semantic)} and comment on what is plainly wrong. Follow a caller only if the change is non-obvious.`);
-  }
-  if (t.mechanical.length) {
-    lines.push(`- **Skim** ${list(t.mechanical)} — generated, mechanical or documentation. Read the diff, do not chase it further, and do not restate what the diff says.`);
-  }
-
-  lines.push(
+  return [
+    "## Where risk concentrates",
     "",
-    "If you find something that warrants more, spend more — but say why in the summary. Do not spend turns confirming",
-    "that nothing is wrong; report nothing and say what you checked.",
-  );
-
-  return lines.join("\n");
+    ...highRisk.map((f) => `- \`${f}\``),
+    "",
+    "Start here, but do not stop here: a file outside this list can still be wrong, and a one-line change carries as",
+    "much risk as a rewrite. Give every changed line the same attention.",
+  ].join("\n");
 }

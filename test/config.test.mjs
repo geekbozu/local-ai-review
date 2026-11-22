@@ -91,32 +91,28 @@ test("the endpoint base always ends in /v1", async () => {
   assert.equal(normaliseBaseUrl(undefined), "");
 });
 
-test("triage weights effort by what the change touches", async () => {
-  const { triage } = await import("../src/lib/triage.mjs");
+test("risk hints name the dangerous areas and nothing else", async () => {
+  const { riskHints } = await import("../src/lib/triage.mjs");
 
-  const docs = triage(["README.md", "docs/notes.md"], { maxTurns: 100 });
-  assert.equal(docs.highRisk.length, 0);
-  assert.equal(docs.semantic.length, 0);
-  assert.ok(docs.turns <= 6, "a docs-only change gets a handful of turns, not dozens");
+  const rls = riskHints(["supabase/migrations/0001_x.sql", "src/services/events.ts", "README.md"]);
+  assert.deepEqual(rls.highRisk, ["supabase/migrations/0001_x.sql", "src/services/events.ts"], "docs are not a risk area");
 
-  const rls = triage(["supabase/migrations/0001_x.sql", "src/services/events.ts"], { maxTurns: 100 });
-  assert.equal(rls.highRisk.length, 2);
-  assert.ok(rls.turns > rls.mechanical.length + 10, "an RLS change is not a docs change");
-
-  const mixed = triage(["pnpm-lock.yaml", "src/pages/landing.tsx"], { maxTurns: 100 });
-  assert.deepEqual(mixed.mechanical, ["pnpm-lock.yaml"]);
-  assert.deepEqual(mixed.semantic, ["src/pages/landing.tsx"]);
-
-  assert.equal(triage(["a.ts"], { maxTurns: 4 }).turns, 4, "the configured cap still wins");
+  assert.deepEqual(riskHints(["README.md", "docs/notes.md"]).highRisk, []);
 });
 
-test("the prompt states the allocation, and names the risky files", async () => {
-  const { triage, triageBrief } = await import("../src/lib/triage.mjs");
-  const t = triage(["src/services/scores.ts", "README.md"], { maxTurns: 100 });
-  const brief = triageBrief(t);
-  assert.match(brief, /Look hard at/);
-  assert.match(brief, /src\/services\/scores\.ts/);
-  assert.match(brief, /Skim/);
-  assert.match(brief, /README\.md/);
-  assert.match(brief, /budget of about \d+ turn/);
+test("a one-line change to a rules file is a high-risk area, not a skim", async () => {
+  const { riskHints, thoroughBrief } = await import("../src/lib/triage.mjs");
+  const hints = riskHints([".pi/rules/frontend.md"]);
+  assert.deepEqual(hints.highRisk, [".pi/rules/frontend.md"]);
+
+  const brief = thoroughBrief(hints);
+  assert.match(brief, /Where risk concentrates/);
+  assert.match(brief, /\.pi\/rules\/frontend\.md/);
+  assert.match(brief, /a one-line change carries as/);
+  assert.doesNotMatch(brief, /skim/i, "nothing tells the agent to skim");
+});
+
+test("no high-risk areas means no brief at all", async () => {
+  const { riskHints, thoroughBrief } = await import("../src/lib/triage.mjs");
+  assert.equal(thoroughBrief(riskHints(["README.md"])), "");
 });

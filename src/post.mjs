@@ -252,8 +252,12 @@ async function main() {
   const coverage = eventsFile ? openedFiles(eventsFile, { root: process.cwd() }) : { opened: new Set(), turns: 0 };
   const missing = eventsFile ? uncovered([...parseDiff(diff).keys()], coverage.opened) : [];
 
-  // Who we are, so a comment written by someone else cannot pass for one of ours.
-  const me = await api("/user").then((u) => u?.login).catch(() => null);
+  // Who we are, so a comment written by someone else cannot pass for one of ours. `/user` is a user-to-server endpoint
+  // and an installation token gets nothing from it, which would have left this filter silently doing nothing; `/app`
+  // answers for an installation, and the bot's login is its slug.
+  const me = await api("/app")
+    .then((a) => (a?.slug ? `${a.slug}[bot]` : null))
+    .catch(() => null);
   const existing = existingMarkers(await api(`/repos/${repo}/pulls/${pr}/comments?per_page=100`), me);
   const fresh = posted.filter((p) => !existing.has(p.marker));
   const skipped = posted.length - fresh.length;

@@ -230,3 +230,42 @@ test("the generic prompt names no runner path", async () => {
   assert.doesNotMatch(prompt, /_work\/_actions/, "runner layout belongs to the repository's config, not here");
   assert.match(prompt, /git diff -U10 origin\/main\.\.\.HEAD/, "the diff is a command, not a payload");
 });
+
+test("model settings can be tuned per repo, and the rest of the defaults survive", async () => {
+  const { loadConfig } = await import("../src/lib/config.mjs");
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+
+  const dir = mkdtempSync(join(tmpdir(), "ai-review-model-"));
+  writeFileSync(
+    join(dir, ".ai-review.json"),
+    JSON.stringify({ modelSettings: { temperature: 0.2, contextWindow: 131072, reasoning: false, thinkingFormat: "none" }, resultChars: 20000, timeBudgetMinutes: 15 }),
+  );
+
+  const config = loadConfig(dir);
+  assert.equal(config.modelSettings.temperature, 0.2);
+  assert.equal(config.modelSettings.contextWindow, 131072);
+  assert.equal(config.modelSettings.reasoning, false);
+  assert.equal(config.modelSettings.thinkingFormat, "none");
+  assert.equal(config.modelSettings.topK, 20, "an unset field keeps its default");
+  assert.equal(config.modelSettings.maxTokens, 65536);
+  assert.equal(config.resultChars, 20000);
+  assert.equal(config.timeBudgetMinutes, 15);
+});
+
+test("a bad model setting fails the run rather than shipping a silent default", async () => {
+  const { loadConfig } = await import("../src/lib/config.mjs");
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const write = (v) => {
+    const dir = mkdtempSync(join(tmpdir(), "ai-review-bad-"));
+    writeFileSync(join(dir, ".ai-review.json"), JSON.stringify(v));
+    return dir;
+  };
+  assert.throws(() => loadConfig(write({ modelSettings: { temperature: -1 } })), /temperature must be a non-negative number/);
+  assert.throws(() => loadConfig(write({ modelSettings: { thinkingFormat: "wat" } })), /thinkingFormat must be/);
+  assert.throws(() => loadConfig(write({ modelSettings: { reasoning: "yes" } })), /reasoning must be true or false/);
+  assert.throws(() => loadConfig(write({ resultChars: 1.5 })), /resultChars must be a non-negative integer/);
+});

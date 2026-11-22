@@ -39,6 +39,30 @@ action prints a notice and exits 0, so adding the workflow everywhere is safe:
 | `thinking` | `low` | `off`, `minimal`, `low`, `medium`, `high` |
 | `enabled` | `true` | `false` opts out without deleting the file |
 | `model` | action input | Override the model per repo |
+| `modelSettings` | see below | What the model call needs: sampling, budgets, whether it thinks at all |
+| `resultChars` | `40000` | Cap on one tool result. A backstop against a whole-file read owning the run, not a reading policy |
+| `timeBudgetMinutes` | `0` | Wall clock, 0 = off. Effort is allocated by turns; this is for a wedged run |
+
+`modelSettings` is where the things that change when the model changes live, so they can be edited without a release:
+
+```json
+"modelSettings": {
+  "contextWindow": 262144,
+  "maxTokens": 65536,
+  "temperature": 0.6,
+  "topP": 0.95,
+  "topK": 20,
+  "minP": 0,
+  "presencePenalty": 0,
+  "repeatPenalty": 1,
+  "reasoning": true,
+  "thinkingFormat": "openai"
+}
+```
+
+- **`reasoning` / `thinkingFormat`** — a model with no thinking parameter sets `reasoning: false` and `thinkingFormat: "none"`, and no compatibility shim is sent. `openai` sends `reasoning_effort`; `qwen-chat-template` sends `chat_template_kwargs.enable_thinking`.
+- **`maxTokens`** is the client's output budget, not a review budget: below the size of the model's thinking it truncates a turn mid-thought and returns no tool call at all.
+- **`temperature`** follows the serving card. Too cold on a reasoning model makes it restate an angle instead of converging.
 
 Second, one job:
 

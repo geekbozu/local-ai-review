@@ -21,6 +21,24 @@ const DEFAULTS = {
   maxTurns: 60, // a runaway stop, not a tuning knob: high enough to be obviously too high
   thinking: "low", // off | minimal | low | medium | high
   model: null, // null = the action input decides
+  // Everything the model call needs that is a property of the model rather than of the repository's policy. These are
+  // the numbers that change when the model changes, so they belong where they can be edited without a release.
+  modelSettings: {
+    contextWindow: 262144,
+    maxTokens: 65536, // the client's output budget: a ceiling against a runaway turn, not a review budget
+    temperature: 0.6, // the serving card's recommendation for general tasks; too cold repeats an angle
+    topP: 0.95,
+    topK: 20,
+    minP: 0,
+    presencePenalty: 0,
+    repeatPenalty: 1,
+    reasoning: true, // does the template accept a thinking/reasoning parameter at all
+    thinkingFormat: "openai", // how it is spelled: openai | qwen-chat-template | chat-template | none
+  },
+  // Character cap on a single tool result. A backstop against one whole-file read owning the run, not a reading policy.
+  resultChars: 40000,
+  // Wall clock in minutes, 0 = off. Effort is allocated by the turn budget; this is for a genuinely wedged run.
+  timeBudgetMinutes: 0,
 };
 
 export function loadConfig(dir = process.cwd()) {
@@ -34,7 +52,14 @@ export function loadConfig(dir = process.cwd()) {
     throw new Error(`${CONFIG_FILE} is not valid JSON: ${err.message}`);
   }
 
-  const config = { ...DEFAULTS, ...raw, path };
+  // Nested objects merge field by field: a repo that sets only `temperature` keeps every other default, which is
+  // the difference between a config file and a trap.
+  const config = {
+    ...DEFAULTS,
+    ...raw,
+    modelSettings: { ...DEFAULTS.modelSettings, ...(raw.modelSettings || {}) },
+    path,
+  };
   if (config.enabled === false) return null;
 
   if (!Array.isArray(config.rules)) throw new Error(`${CONFIG_FILE}: rules must be an array of paths or globs`);
@@ -48,6 +73,24 @@ export function loadConfig(dir = process.cwd()) {
       new RegExp(p);
     } catch {
       throw new Error(`${CONFIG_FILE}: riskHints contains an invalid regular expression: ${p}`);
+    }
+  }
+  const numbers = ["contextWindow", "maxTokens", "temperature", "topP", "topK", "minP", "presencePenalty", "repeatPenalty"];
+  for (const key of numbers) {
+    const value = config.modelSettings[key];
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+      throw new Error(`${CONFIG_FILE}: modelSettings.${key} must be a non-negative number`);
+    }
+  }
+  if (!["openai", "qwen-chat-template", "chat-template", "none"].includes(config.modelSettings.thinkingFormat)) {
+    throw new Error(`${CONFIG_FILE}: modelSettings.thinkingFormat must be openai, qwen-chat-template, chat-template or none`);
+  }
+  if (typeof config.modelSettings.reasoning !== "boolean") {
+    throw new Error(`${CONFIG_FILE}: modelSettings.reasoning must be true or false`);
+  }
+  for (const key of ["resultChars", "timeBudgetMinutes"]) {
+    if (!Number.isInteger(config[key]) || config[key] < 0) {
+      throw new Error(`${CONFIG_FILE}: ${key} must be a non-negative integer`);
     }
   }
   if (!["low", "medium", "high", "critical"].includes(config.severityFloor)) {

@@ -13,9 +13,6 @@ import { openedFiles, uncovered } from "./lib/coverage.mjs";
 import { openTrace } from "./lib/trace.mjs";
 import { renderTranscript } from "./lib/transcript.mjs";
 
-// The client's output budget per turn, not a review budget: the loop bounds a run. High enough never to bind on
-// a normal turn (~10k of thinking) and only to stop a pathological one running for hours.
-const MAX_OUTPUT_TOKENS = Number(process.env.AI_REVIEW_MAX_TOKENS || 65536);
 import { parseDiff, touchedPaths } from "./lib/diff.mjs";
 import { readRules, buildPrompt } from "./lib/prompt.mjs";
 import { riskHints } from "./lib/triage.mjs";
@@ -96,7 +93,7 @@ function writeAgentDir({ model, baseUrl, apiKeyEnv, maxTokens, thinking }) {
                 // tool call at all — measured at ~10k tokens of thinking per turn, so 4096 "spends nothing" is
                 // really "does nothing". Set high enough never to bind in practice (natural stops run ~10k) and
                 // only to stop a pathological turn from running for hours.
-                maxTokens: MAX_OUTPUT_TOKENS,
+                maxTokens: settings.maxTokens,
                 cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
                 compat,
                 // 0.6 is the model card's recommendation for general tasks. Too cold on a reasoning model
@@ -170,8 +167,8 @@ export async function run() {
     model,
     baseUrl,
     apiKeyEnv,
-    maxTokens: Number(env.AI_REVIEW_MAX_TOKENS || 16384),
-    thinking: config.thinking,
+    // The action's input wins when set, so a deployment can clamp a repo's numbers without editing its config.
+    settings: { ...config.modelSettings, maxTokens: Number(env.AI_REVIEW_MAX_TOKENS || config.modelSettings.maxTokens) },
   });
 
   const findingsFile = env.FINDINGS_FILE || join(tmpdir(), `ai-review-findings-${process.pid}.jsonl`);
@@ -215,6 +212,8 @@ export async function run() {
         AI_REVIEW_FINDINGS: findingsFile,
         AI_REVIEW_NOTES: notesFile,
         AI_REVIEW_MAX_TURNS: String(config.maxTurns),
+        AI_REVIEW_RESULT_CHARS: String(config.resultChars),
+        AI_REVIEW_TIME_BUDGET_MIN: String(env.AI_REVIEW_TIME_BUDGET_MIN || config.timeBudgetMinutes),
       },
     });
     child.stdin.end(prompt);

@@ -11,6 +11,7 @@ import { loadConfig } from "./lib/config.mjs";
 import { normaliseBaseUrl } from "./lib/url.mjs";
 import { openedFiles, uncovered } from "./lib/coverage.mjs";
 import { openTrace } from "./lib/trace.mjs";
+import { renderTranscript } from "./lib/transcript.mjs";
 import { parseDiff, touchedPaths } from "./lib/diff.mjs";
 import { readRules, buildPrompt } from "./lib/prompt.mjs";
 import { riskHints } from "./lib/triage.mjs";
@@ -153,6 +154,7 @@ export async function run() {
 
   const findingsFile = env.FINDINGS_FILE || join(tmpdir(), `ai-review-findings-${process.pid}.jsonl`);
   const promptFile = env.PROMPT_FILE || join(tmpdir(), `ai-review-prompt-${process.pid}.txt`);
+  const transcriptFile = env.TRANSCRIPT_FILE || join(tmpdir(), `ai-review-transcript-${process.pid}.md`);
   writeFileSync(promptFile, prompt);
   const notesFile = join(tmpdir(), `ai-review-notes-${process.pid}.txt`);
   const eventsFile = env.EVENTS_FILE || join(tmpdir(), `ai-review-events-${process.pid}.jsonl`);
@@ -206,6 +208,10 @@ export async function run() {
   });
 
   await trace.close();
+
+  // The readable view of the same run: what it thought, what it ran, what came back, what it decided. The raw
+  // stream is kept beside it because a rendering is an interpretation and the stream is the evidence.
+  writeFileSync(transcriptFile, renderTranscript(Buffer.concat(events).toString("utf8").split(String.fromCharCode(10))));
 
   // A run that produces nothing must say why in the log. Without this, "0 findings" is indistinguishable from
   // "the endpoint refused, the model was not loaded, or the model refused" — and all three read as a clean review.
@@ -273,7 +279,7 @@ export async function run() {
         "| Files changed | " + touched.length + " |",
         "| Files opened | " + opened.size + " |",
         "| Rules | " + (rules ? "base ref" : "none declared") + " |",
-        "| Trace | `ai-review-run` artefact: events, findings, prompt |",
+        "| Trace | `ai-review-run` artefact: `transcript.md` to read, `events.jsonl` for the evidence, `prompt.txt` for what it was told |",
         "",
         missing.length ? "**Never opened:** " + missing.map((f) => "`" + f + "`").join(", ") : "",
         "",

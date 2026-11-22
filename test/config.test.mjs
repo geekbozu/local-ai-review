@@ -135,3 +135,49 @@ test("the trace is on disk before the process ends", async () => {
   await trace.close();
   assert.equal(readFileSync(file, "utf8").trim().split("\n").length, 2);
 });
+
+test("the transcript keeps the thinking, the tools and what came back", async () => {
+  const { renderTranscript } = await import("../src/lib/transcript.mjs");
+  const events = [
+    { type: "session", id: "s1", cwd: "/repo" },
+    {
+      type: "message_end",
+      message: {
+        role: "assistant",
+        timestamp: 1000,
+        stopReason: "toolUse",
+        usage: { output: 42, cacheRead: 500 },
+        content: [
+          { type: "thinking", thinking: "The service filters by judge_id, which is not event-scoped." },
+          { type: "toolCall", name: "read", arguments: { path: "src/services/scores.ts" } }, // the shape pi actually emits
+        ],
+      },
+    },
+    { type: "tool_execution_end", durationMs: 12, isError: false, result: { content: [{ type: "text", text: "file body" }] } },
+    { type: "turn_end" },
+    {
+      type: "message_end",
+      message: { role: "assistant", timestamp: 60000, stopReason: "stop", usage: { output: 8 }, content: [{ type: "text", text: "Nothing else to report." }] },
+    },
+    { type: "turn_end" },
+  ].map((e) => JSON.stringify(e));
+
+  const md = renderTranscript(events);
+  assert.match(md, /### Turn 1/);
+  assert.match(md, /event-scoped/, "thinking survives");
+  assert.match(md, /\*\*→ read\*\*/, "the tool call is shown with its argument");
+  assert.match(md, /path=src\/services\/scores\.ts/);
+  assert.match(md, /file body/, "the tool result is shown");
+  assert.match(md, /cached/, "usage is shown");
+  assert.match(md, /Nothing else to report\./);
+  assert.match(md, /2 turn\(s\), 59s of model time/);
+});
+
+test("a torn last line does not lose the transcript", async () => {
+  const { renderTranscript } = await import("../src/lib/transcript.mjs");
+  const lines = [
+    JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "kept" }] } }),
+    '{"type":"message_end","message":{"role":"assis',
+  ];
+  assert.match(renderTranscript(lines), /kept/);
+});

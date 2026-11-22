@@ -98,6 +98,7 @@ runs:
         FINDINGS_FILE: ${{ runner.temp }}/ai-review-findings.jsonl
         EVENTS_FILE: ${{ runner.temp }}/ai-review-events.jsonl
         PROMPT_FILE: ${{ runner.temp }}/ai-review-prompt.txt
+        TRANSCRIPT_FILE: ${{ runner.temp }}/ai-review-transcript.md
       run: node "${{ github.action_path }}/src/review.mjs"
 
     # A 45-minute run that ends with nothing to show is unfixable without the event stream, and the runner is gone

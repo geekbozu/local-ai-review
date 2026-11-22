@@ -293,9 +293,21 @@ export function writeAgentDir({ model, baseUrl, apiKeyEnv, settings }) {
   );
 
   // Compaction starts at a fifth of the window, so a long review summarises before the context forces it.
+  // `httpIdleTimeoutMs` is the client's own patience, and its default of five minutes is shorter than a slow device needs
+  // to read a large prompt: it abandons runs that were working, and the failure arrives as an upstream stream timeout
+  // rather than as our timeout. `retry.provider.maxRetries` is 0 because the agent-level retry already covers a failed
+  // request; both on means the same request can be retried twice over.
   writeFileSync(
     join(dir, "settings.json"),
-    JSON.stringify({ compaction: { enabled: true, reserveTokens: Math.round(settings.contextWindow * 0.19) } }, null, 2),
+    JSON.stringify(
+      {
+        compaction: { enabled: true, reserveTokens: Math.round(settings.contextWindow * 0.19) },
+        httpIdleTimeoutMs: settings.providerTimeoutMs > 0 ? settings.providerTimeoutMs : "disabled",
+        retry: { provider: { maxRetries: 0 } },
+      },
+      null,
+      2,
+    ),
   );
 
   return dir;
@@ -413,7 +425,11 @@ export async function run() {
     baseUrl: proxy.baseUrl,
     apiKeyEnv,
     // The action's input wins when set, so a deployment can clamp a repo's numbers without editing its config.
-    settings: { ...config.modelSettings, maxTokens: Number(env.AI_REVIEW_MAX_TOKENS || 0) || config.modelSettings.maxTokens },
+    settings: {
+      ...config.modelSettings,
+      maxTokens: Number(env.AI_REVIEW_MAX_TOKENS || 0) || config.modelSettings.maxTokens,
+      providerTimeoutMs: config.providerTimeoutMs,
+    },
   });
 
   const systemPromptFile = join(agentDir, "reviewer.md");

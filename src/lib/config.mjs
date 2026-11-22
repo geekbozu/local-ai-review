@@ -28,6 +28,10 @@ const DEFAULTS = {
   // ten-minute cut would silently shorten reviews everywhere else. A deployment whose model box is slow sets a number,
   // in tokens, in its own config.
   contextBudget: 0, // 0 = off
+  // How long the client waits for the model to send anything, in milliseconds; 0 means no limit. The client's own default
+  // is five minutes, which is shorter than a slow device needs to read a large prompt — so it abandons runs that were
+  // working. This is the timeout to raise first, before shortening a review to fit under it.
+  providerTimeoutMs: 300000,
   thinking: "low", // off | minimal | low | medium | high
   model: null, // null = the action input decides
   // Everything the model call needs that is a property of the model rather than of the repository's policy. These are
@@ -130,6 +134,9 @@ function validate(raw, path) {
     if (!Number.isInteger(config[key]) || config[key] < 0) {
       throw new Error(`${CONFIG_FILE}: ${key} must be a non-negative integer`);
     }
+  }
+  if (!Number.isInteger(config.providerTimeoutMs) || config.providerTimeoutMs < 0) {
+    throw new Error(`${CONFIG_FILE}: providerTimeoutMs must be a non-negative integer (0 for no limit)`);
   }
   if (!Number.isInteger(config.contextBudget) || config.contextBudget < 0) {
     throw new Error(`${CONFIG_FILE}: contextBudget must be a non-negative integer`);

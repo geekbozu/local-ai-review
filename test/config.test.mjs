@@ -280,3 +280,34 @@ test("every module the run imports resolves — a missing export is caught here,
     assert.equal(typeof prompt[name], "function", `prompt.mjs must export ${name}`);
   }
 });
+
+test("the model entry is built from config, and a non-thinking model sends no shim", async () => {
+  const { writeAgentDir } = await import("../src/review.mjs");
+  const { readFileSync } = await import("node:fs");
+  const base = {
+    contextWindow: 131072, maxTokens: 65536, temperature: 0.3, topP: 0.9, topK: 20,
+    minP: 0, presencePenalty: 0, repeatPenalty: 1,
+  };
+  const read = (settings) => {
+    const dir = writeAgentDir({ model: "m", baseUrl: "http://box/v1", apiKeyEnv: "K", settings });
+    return {
+      model: JSON.parse(readFileSync(dir + "/models.json", "utf8")).providers.local.models[0],
+      compaction: JSON.parse(readFileSync(dir + "/settings.json", "utf8")).compaction,
+    };
+  };
+
+  const thinking = read({ ...base, reasoning: true, thinkingFormat: "openai" });
+  assert.deepEqual(thinking.model.compat, { thinkingFormat: "openai" });
+  assert.equal(thinking.model.reasoning, true);
+
+  const plain = read({ ...base, reasoning: false, thinkingFormat: "none" });
+  assert.equal(plain.model.compat, undefined, "no reasoning_effort for a model that has no thinking parameter");
+  assert.equal(plain.model.reasoning, false);
+
+  assert.equal(thinking.model.samplingParams.temperature, 0.3);
+  assert.equal(thinking.model.samplingParams.presence_penalty, 0);
+  assert.equal(thinking.model.maxTokens, 65536);
+  assert.equal(thinking.model.contextWindow, 131072);
+  assert.equal(thinking.compaction.reserveTokens, Math.round(131072 * 0.19), "compaction follows the model's window");
+  assert.ok(!("max_tokens" in thinking.model.samplingParams), "no per-request cap is sent");
+});

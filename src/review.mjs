@@ -67,11 +67,15 @@ function watch({ onFinding, onTurn }) {
 
 // The model catalogue is generated from inputs so no repository has to carry one. This is also the only place the
 // key is placed, and it goes in with $NAME so it is never written to disk.
-function writeAgentDir({ model, baseUrl, apiKeyEnv, maxTokens, thinking }) {
+export function writeAgentDir({ model, baseUrl, apiKeyEnv, settings }) {
   const dir = join(tmpdir(), `ai-review-agent-${process.pid}`);
   mkdirSync(dir, { recursive: true });
-  const compat = { thinkingFormat: "openai" };
+
+  // A model with no thinking parameter gets no compatibility shim: sending reasoning_effort to a template that does not
+  // read it is ignored at best. The wire format is the repo's choice — see modelSettings.thinkingFormat.
+  const compat = settings.reasoning && settings.thinkingFormat !== "none" ? { thinkingFormat: settings.thinkingFormat } : undefined;
   const levels = { minimal: "minimal", low: "low", medium: "medium", high: "high" };
+
   writeFileSync(
     join(dir, "models.json"),
     JSON.stringify(
@@ -85,24 +89,23 @@ function writeAgentDir({ model, baseUrl, apiKeyEnv, maxTokens, thinking }) {
               {
                 id: model,
                 name: model,
-                reasoning: true,
+                reasoning: settings.reasoning,
                 input: ["text"],
-                contextWindow: 262144,
-                // Not a per-turn cap: this is the client's own output budget, and the loop is what bounds a run.
-                // A value below the size of the model's thinking truncates the turn mid-thought and returns no
-                // tool call at all — measured at ~10k tokens of thinking per turn, so 4096 "spends nothing" is
-                // really "does nothing". Set high enough never to bind in practice (natural stops run ~10k) and
-                // only to stop a pathological turn from running for hours.
+                // No max_tokens is sent per request: an OpenAI-compatible server defaults to its own limit (-1 on the
+                // hardware this was built against, meaning the context). maxTokens here is the client's output budget,
+                // and below the size of the model's thinking it truncates a turn mid-thought and returns no tool call.
+                contextWindow: settings.contextWindow,
                 maxTokens: settings.maxTokens,
                 cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
                 compat,
-                // 0.6 is the model card's recommendation for general tasks. Too cold on a reasoning model
-                // makes it restate an angle instead of converging, which measured as ~10k tokens of thinking
-                // per turn and no findings in 22 turns.
-                //
-                // No max_tokens in the request: an OpenAI-compatible server defaults to its own limit (-1 on the
-                // hardware this was built against, meaning the context), so a per-turn ceiling can only hurt.
-                samplingParams: { temperature: 0.6 },
+                samplingParams: {
+                  temperature: settings.temperature,
+                  top_p: settings.topP,
+                  top_k: settings.topK,
+                  min_p: settings.minP,
+                  presence_penalty: settings.presencePenalty,
+                  repeat_penalty: settings.repeatPenalty,
+                },
                 thinkingLevelMap: levels,
               },
             ],
@@ -113,10 +116,13 @@ function writeAgentDir({ model, baseUrl, apiKeyEnv, maxTokens, thinking }) {
       2,
     ),
   );
+
+  // Compaction starts at a fifth of the window, so a long review summarises before the context forces it.
   writeFileSync(
     join(dir, "settings.json"),
-    JSON.stringify({ compaction: { enabled: true, reserveTokens: Math.round(262144 * 0.19) } }, null, 2),
+    JSON.stringify({ compaction: { enabled: true, reserveTokens: Math.round(settings.contextWindow * 0.19) } }, null, 2),
   );
+
   return dir;
 }
 

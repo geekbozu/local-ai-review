@@ -486,7 +486,7 @@ export async function run() {
     AI_REVIEW_MAX_TURNS: String(config.maxTurns),
     AI_REVIEW_RESULT_CHARS: String(config.resultChars),
     AI_REVIEW_TIME_BUDGET_MIN: String(env.AI_REVIEW_TIME_BUDGET_MIN || config.timeBudgetMinutes),
-    AI_REVIEW_CONTEXT_WINDOW: String(config.modelSettings.contextWindow),
+    AI_REVIEW_CONTEXT_BUDGET: String(config.contextBudget),
     // A per-run token the loopback proxy accepts, standing where the real key would be.
     [apiKeyEnv]: proxy.token,
   };

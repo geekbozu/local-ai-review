@@ -23,6 +23,10 @@ const DEFAULTS = {
   // this is a threshold on a number rather than another sentence to obey.
   confidenceFloor: 7, // 0-10
   maxTurns: 60, // a runaway stop, not a tuning knob: high enough to be obviously too high
+  // Tokens of context before the run wraps up. Not a fraction of the window: on the hardware this was built against a
+  // 128k prompt costs five minutes of prefill before the first token and the request is cut at ten, so "half the window"
+  // is a coin flip rather than a bound. 64k is about two minutes there, and a review of a diff needs far less.
+  contextBudget: 64000,
   thinking: "low", // off | minimal | low | medium | high
   model: null, // null = the action input decides
   // Everything the model call needs that is a property of the model rather than of the repository's policy. These are
@@ -125,6 +129,9 @@ function validate(raw, path) {
     if (!Number.isInteger(config[key]) || config[key] < 0) {
       throw new Error(`${CONFIG_FILE}: ${key} must be a non-negative integer`);
     }
+  }
+  if (!Number.isInteger(config.contextBudget) || config.contextBudget < 0) {
+    throw new Error(`${CONFIG_FILE}: contextBudget must be a non-negative integer`);
   }
   if (!Number.isInteger(config.confidenceFloor) || config.confidenceFloor < 0 || config.confidenceFloor > 10) {
     throw new Error(`${CONFIG_FILE}: confidenceFloor must be an integer from 0 to 10`);

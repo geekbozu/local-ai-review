@@ -21,10 +21,10 @@ import { appendFileSync } from "node:fs";
 export default function (pi) {
   const cap = Number(process.env.AI_REVIEW_MAX_TURNS || 60);
   const budgetMinutes = Number(process.env.AI_REVIEW_TIME_BUDGET_MIN || 0);
-  // A fourth bound, and on this hardware the one that bites: context. Every turn re-sends it, so a review that has grown
-  // to 200k of a 262k window spends minutes per turn and then the endpoint times out. Halving the window is the point
-  // where wrapping up is still cheap.
-  const contextLimit = Math.floor(Number(process.env.AI_REVIEW_CONTEXT_WINDOW || 0) / 2);
+  // A fourth bound, and on this hardware the one that bites. Measured on the device this was built for: a 128k prompt
+  // costs ~5 minutes of prefill before the first token and the request is cut at ~10, so a fraction of the window is a
+  // coin flip. The budget is an absolute token count from config, not a share of whatever the model advertises.
+  const contextLimit = Math.floor(Number(process.env.AI_REVIEW_CONTEXT_BUDGET || 0));
   const notes = process.env.AI_REVIEW_NOTES;
   const startedAt = Date.now();
   let steered = false;

@@ -45,3 +45,17 @@ test("an executable is resolved against the path it is given", () => {
   const found = resolveExecutable(process.execPath.split(/[\/]/).pop(), dirname(process.execPath));
   assert.equal(found, process.execPath, "the first directory carrying an executable wins");
 });
+
+// Measured on a board: a run pointed at a model the device had evicted retried a 404 for twenty minutes and produced
+// nothing, because nothing treated a failed model call as anything other than a slow turn.
+test("a failed model call is fatal, not a slow turn", () => {
+  const fatals = [];
+  const w = watch({ onFinding: () => {}, onTurn: () => {}, onFatal: (m) => fatals.push(m) });
+  w(JSON.stringify({ type: "message_end", message: { role: "assistant", stopReason: "error", errorMessage: '404: not loaded' } }) + "\n");
+  assert.deepEqual(fatals, ["404: not loaded"]);
+
+  const quiet = [];
+  const w2 = watch({ onFinding: () => {}, onTurn: () => {}, onFatal: (m) => quiet.push(m) });
+  w2(JSON.stringify({ type: "message_end", message: { role: "assistant", stopReason: "stop" } }) + "\n");
+  assert.equal(quiet.length, 0, "a normal turn is not fatal");
+});

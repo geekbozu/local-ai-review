@@ -39,7 +39,7 @@ const git = (args, dir = process.cwd()) =>
 // A 45-minute job that prints nothing for 45 minutes is indistinguishable from a wedged one, and the only evidence
 // afterwards was a JSONL file on a runner that no longer exists. This prints as it goes and the same numbers go to
 // the step summary, so a log answers "was it working" without a re-run.
-export function watch({ onFinding, onTurn }) {
+export function watch({ onFinding, onTurn, onFatal }) {
   let buffer = "";
   let turn = 0;
   let findings = 0;
@@ -60,6 +60,14 @@ export function watch({ onFinding, onTurn }) {
       try {
         event = JSON.parse(line);
       } catch {
+        continue;
+      }
+
+      // A model call that fails is not a slow turn: every later turn fails the same way, and the review burns the whole
+      // budget learning that. Measured: a run pointed at a model the device had evicted spent twenty minutes retrying a
+      // 404 and produced nothing. Fail the run instead.
+      if (event.type === "message_end" && event.message?.role === "assistant" && event.message?.stopReason === "error") {
+        onFatal?.(event.message.errorMessage || "the model call failed");
         continue;
       }
 
@@ -429,7 +437,17 @@ export async function run() {
     });
     // The instructions are in the appended system prompt; this is the kickoff, not a second copy of them.
     child.stdin.end("Review the change described in your instructions. Report what you find with report_finding.");
+    let settled = false;
     const progress = watch({
+      onFatal: (message) => {
+        if (settled) return;
+        settled = true;
+        console.error(`[ai-review] the model call failed: ${message}`);
+        try {
+          child.kill("SIGTERM");
+        } catch {}
+        reject(new Error(`the model call failed: ${message}`));
+      },
       onFinding: (f) => console.error(`[ai-review] finding ${f.findings}: ${f.severity} ${f.path} — ${f.body.slice(0, 100)}`),
       onTurn: (t) =>
         console.error(

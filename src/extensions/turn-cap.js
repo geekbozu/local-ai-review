@@ -40,7 +40,9 @@ export default function (pi) {
     // A review that has reported nothing by half its budget has usually stopped reviewing and started hunting. The
     // measured case: 29 turns, 207k output tokens, no findings, cut off by the job timeout. This is the guard that
     // does not depend on the prompt being obeyed.
-    const fruitless = findings === 0 && turn >= Math.max(8, Math.ceil(cap / 2));
+    // Half the budget was too late: measured at 40 minutes and 20 turns, six of them spending ~10k tokens of thinking
+    // with no finding, before the guard's trigger at 30 was even close. A quarter of the budget, capped at 15.
+    const fruitless = findings === 0 && turn >= Math.max(8, Math.min(15, Math.ceil(cap / 4)));
     if (!overTurns && !overTime && !fruitless) return;
 
     steered = true;

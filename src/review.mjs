@@ -5,7 +5,7 @@
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
-import { writeFileSync, mkdirSync, readFileSync, readdirSync, existsSync, cpSync, accessSync, constants, rmSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync, readdirSync, existsSync, cpSync, accessSync, constants, rmSync, lstatSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, delimiter } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -329,6 +329,7 @@ export async function run() {
   // "git diff ...: warning: Not a git repository" on a run whose checkout had succeeded. GITHUB_WORKSPACE is the
   // checkout, and the line below makes the difference visible when they disagree.
   const workspace = env.GITHUB_WORKSPACE || process.cwd();
+  const tempRoot = env.RUNNER_TEMP || tmpdir();
   console.error(`[ai-review] workspace ${workspace} (cwd ${process.cwd()}), git repo: ${existsSync(join(workspace, ".git"))}`);
   const diff = await git(["diff", "-U10", `${baseRef}...HEAD`], workspace);
   const files = parseDiff(diff);
@@ -343,7 +344,10 @@ export async function run() {
   // the one tree the sandbox may write: an agent that moves `origin/main` can otherwise choose both the diff its quotes
   // anchor to and the floor that decides what posts. This directory is outside every bind, so the child can read it and
   // cannot change it.
-  const frozenDir = env.FROZEN_DIR || join(dirname(workspace), "ai-review-frozen");
+  // In the per-job temp, which is not writable by the child (only two files there are bound), and which cannot
+  // outlive the job. A sibling of the workspace would also be outside the binds, but it would persist between jobs,
+  // and a crash before this write would let the poster read the previous run's diff.
+  const frozenDir = env.FROZEN_DIR || join(tempRoot, "ai-review-frozen");
   const head = (await git(["rev-parse", "HEAD"], workspace)).trim();
   rmSync(frozenDir, { recursive: true, force: true });
   mkdirSync(frozenDir, { recursive: true });
@@ -440,6 +444,9 @@ export async function run() {
   // budget trying to mount, unshare and FUSE its way around a permission error it could not fix.
   for (const file of [findingsFile, notesFile]) {
     try {
+      // A previous job that skipped its cleanup could leave a symlink here, and appending through it would write wherever
+      // it points. Nothing legitimate creates one, so it is removed rather than followed.
+      if (lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink()) rmSync(file, { force: true });
       if (!existsSync(file)) writeFileSync(file, "");
     } catch (err) {
       console.error(`[ai-review] cannot prepare ${file}: ${err.message}`);

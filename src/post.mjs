@@ -121,9 +121,13 @@ export function buildReview({ findings, diff, floor = "low" }) {
 
 // Re-runs are normal: a push triggers another review. The hidden marker is the only reliable way to tell "we
 // already said this" from "we are saying it again", so it is written into every body and read back here.
-export function existingMarkers(comments) {
+// Only comments this token wrote count as "we already said that". The marker is a hash of path, line, severity and the
+// first quoted line — every input readable from the diff — so anyone who can comment on the pull request can compute one
+// and suppress a real finding by posting it first. `only` is the login the token resolves to.
+export function existingMarkers(comments, only = null) {
   const ids = new Set();
   for (const c of comments) {
+    if (only && c.user?.login !== only) continue;
     const m = /<!-- ai-review:([0-9a-f]{16}) -->/.exec(c.body || "");
     if (m) ids.add(m[1]);
   }
@@ -146,7 +150,7 @@ export function summarise({ posted, dropped, uncovered: missing = [], turns }) {
       // The body, not just the quote: severity is the model's own rating and it is not stable — the same defect came
       // back medium, medium and low across three runs of one diff. A low that is really a medium has to be readable
       // here, because the artifact is not where anyone looks.
-      ...dropped.map((d) => {
+      ...dropped.slice(0, 25).map((d) => {
         const head = `${d.severity ? `**${d.severity}** ` : ""}${d.reason}${d.path ? ` — \`${d.path}\`` : ""}`;
         // Model output, in a rendered review body: the same sanitiser as a posted comment, and capped. A dropped finding
         // is not a safe finding, and an uncapped list of them is a way to make the POST fail entirely.
@@ -154,6 +158,7 @@ export function summarise({ posted, dropped, uncovered: missing = [], turns }) {
         if (d.raw) return `- ${head}: \`${sanitise(d.raw).slice(0, 200)}\``;
         return `- ${head}${d.quote ? `: \`${sanitise(d.quote).slice(0, 120)}\`` : ""}`;
       }),
+      dropped.length > 25 ? `- …and ${dropped.length - 25} more, in this run's notes` : "",
       "",
       "</details>",
     );
@@ -247,7 +252,9 @@ async function main() {
   const coverage = eventsFile ? openedFiles(eventsFile, { root: process.cwd() }) : { opened: new Set(), turns: 0 };
   const missing = eventsFile ? uncovered([...parseDiff(diff).keys()], coverage.opened) : [];
 
-  const existing = existingMarkers(await api(`/repos/${repo}/pulls/${pr}/comments?per_page=100`));
+  // Who we are, so a comment written by someone else cannot pass for one of ours.
+  const me = await api("/user").then((u) => u?.login).catch(() => null);
+  const existing = existingMarkers(await api(`/repos/${repo}/pulls/${pr}/comments?per_page=100`), me);
   const fresh = posted.filter((p) => !existing.has(p.marker));
   const skipped = posted.length - fresh.length;
 

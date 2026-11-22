@@ -257,3 +257,12 @@ test("a dropped finding is sanitised too, and a marker cannot be forged into a b
   assert.ok(!/(?<!\\)@team/.test(text), "mentions are escaped in the summary as well");
   assert.ok(!text.includes("<!-- ai-review:"), "a forged marker is stripped, so it cannot suppress a real finding");
 });
+
+// The marker is a hash of values readable from the diff, so anyone who can comment can compute one. Only comments this
+// token wrote may count as "already said".
+test("a marker from someone else's comment does not count", () => {
+  const ours = { body: "x <!-- ai-review:0123456789abcdef -->", user: { login: "github-actions[bot]" } };
+  const theirs = { body: "y <!-- ai-review:fedcba9876543210 -->", user: { login: "someone" } };
+  assert.equal(existingMarkers([ours, theirs], "github-actions[bot]").size, 1);
+  assert.equal(existingMarkers([ours, theirs]).size, 2, "with no identity given, the caller gets what it asked for");
+});

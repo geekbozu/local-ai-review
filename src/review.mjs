@@ -2,10 +2,12 @@
 //
 // Nothing here knows which repository it is in.
 
-import { spawn } from "node:child_process";
-import { writeFileSync, mkdirSync, readFileSync } from "node:fs";
+import { spawn, execFileSync } from "node:child_process";
+import { createServer } from "node:http";
+import { randomBytes } from "node:crypto";
+import { writeFileSync, mkdirSync, readFileSync, existsSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadConfig } from "./lib/config.mjs";
 import { normaliseBaseUrl } from "./lib/url.mjs";
@@ -80,6 +82,113 @@ export function watch({ onFinding, onTurn }) {
 
 // The model catalogue is generated from inputs so no repository has to carry one. This is also the only place the
 // key is placed, and it goes in with $NAME so it is never written to disk.
+// --- the sandbox --------------------------------------------------------------------------------------------------
+// Everything below is what the OS enforces. The previous design read `bash` command strings and decided what was
+// allowed; a relative path defeated it in one attempt, and no amount of pattern-writing wins that game. A mount
+// cannot be argued with.
+
+const SANDBOX_UID = "1000";
+
+const chownTree = (path) => {
+  try {
+    execFileSync("chown", ["-R", `${SANDBOX_UID}:${SANDBOX_UID}`, path], { stdio: "ignore" });
+  } catch {
+    // Not root, or the filesystem disagrees: the bind mounts still hold, writes may simply fail later.
+  }
+};
+
+export function bwrapAvailable() {
+  try {
+    execFileSync("bwrap", ["--version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Root is read-only; the workspace and a per-job directory are writable; the action's own checkout is hidden rather
+// than forbidden; the environment is cleared and rebuilt from the whitelist below.
+export function sandboxArgv({ argv, workspace, writable = [], envForChild = {} }) {
+  const args = [
+    "--ro-bind", "/", "/",
+    "--bind", workspace, workspace,
+    "--tmpfs", "/tmp",
+    "--dev", "/dev",
+    "--proc", "/proc",
+    "--unshare-pid",
+    "--die-with-parent",
+    "--clearenv",
+    "--uid", SANDBOX_UID,
+    "--gid", SANDBOX_UID,
+    "--cap-drop", "ALL",
+  ];
+  for (const dir of writable) if (dir && existsSync(dir)) args.push("--bind", dir, dir);
+  // The runner checks the action out beside the repository. A review that reads the reviewer is reviewing the wrong
+  // thing, and this is the version of that rule that holds.
+  const actions = join(dirname(dirname(workspace)), "_actions");
+  if (existsSync(actions)) args.push("--tmpfs", actions);
+  for (const [key, value] of Object.entries(envForChild)) {
+    if (value !== undefined) args.push("--setenv", key, String(value));
+  }
+  args.push("--", ...argv);
+  return args;
+}
+
+// The endpoint key must not exist inside the sandbox: with `bash` available, anything in the environment is readable by
+// whatever the model was talked into running. This holds the key, listens on loopback, and accepts one per-run token.
+// A convinced model can still use the model it was already using; it cannot take the credential.
+export async function startKeyProxy({ target, realKey }) {
+  const token = randomBytes(24).toString("hex");
+  const base = target.replace(/\/+$/, "");
+
+  const server = createServer(async (req, res) => {
+    const reply = (status, payload) => {
+      res.writeHead(status, { "content-type": "application/json" });
+      res.end(JSON.stringify(payload));
+    };
+    if (req.headers.authorization !== `Bearer ${token}`) return reply(401, { error: { message: "unauthorized" } });
+
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    // The base URL already ends at /v1 and pi appends /chat/completions to it, so a path that carries its own /v1 is
+    // not duplicated.
+    const path = base.endsWith("/v1") && req.url.startsWith("/v1") ? req.url.slice(3) : req.url;
+    try {
+      const upstream = await fetch(base + path, {
+        method: req.method,
+        headers: {
+          "content-type": req.headers["content-type"] || "application/json",
+          authorization: `Bearer ${realKey}`,
+        },
+        body: chunks.length ? Buffer.concat(chunks) : undefined,
+      });
+      res.writeHead(upstream.status, { "content-type": upstream.headers.get("content-type") || "application/json" });
+      res.end(Buffer.from(await upstream.arrayBuffer()));
+    } catch (err) {
+      reply(502, { error: { message: String(err && err.message) } });
+    }
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return { server, token, baseUrl: `http://127.0.0.1:${server.address().port}` };
+}
+
+// The shared agent dir holds pi's package cache, so a board pays for it once. It is never handed to the sandbox: a
+// writable shared cache is a way of making the next run load attacker-chosen code. Each job gets a copy.
+function seedAgentDir() {
+  const cache = process.env.PI_CODING_AGENT_DIR;
+  const dir = join(process.env.RUNNER_TEMP || tmpdir(), `ai-review-agent-${process.pid}`);
+  mkdirSync(dir, { recursive: true });
+  if (cache && cache !== dir && existsSync(cache)) {
+    try {
+      cpSync(cache, dir, { recursive: true });
+    } catch (err) {
+      console.error(`[ai-review] could not seed the agent dir from ${cache}: ${err.message}`);
+    }
+  }
+  return dir;
+}
+
 export function writeAgentDir({ model, baseUrl, apiKeyEnv, settings }) {
   // Supplied by the action when the runner keeps a directory between jobs, so pi's `-e` package cache persists.
   const dir = process.env.PI_CODING_AGENT_DIR || join(tmpdir(), `ai-review-agent-${process.pid}`);
@@ -166,6 +275,15 @@ export async function run() {
   if (!baseUrl) throw new Error("no endpoint: set AI_REVIEW_BASE_URL");
   if (!env[apiKeyEnv]) throw new Error(`${apiKeyEnv} is empty; the endpoint needs a key`);
 
+  if (!bwrapAvailable()) {
+    console.log("bubblewrap is not installed on this runner, so the review cannot be sandboxed and is skipped.");
+    console.log("Install it once per runner (apt-get install bubblewrap); see docs/security.md.");
+    return { skipped: "no sandbox" };
+  }
+
+  // The child never sees the endpoint key: it sees a loopback proxy that holds it.
+  const proxy = await startKeyProxy({ target: baseUrl, realKey: env[apiKeyEnv] });
+
   const diff = await git(["diff", "-U10", `${baseRef}...HEAD`]);
   const files = parseDiff(diff);
   const touched = touchedPaths(files);
@@ -197,9 +315,13 @@ export async function run() {
       `rules from base: ${rules.restored.length} restored, ${rules.removed.length} removed`,
   );
 
-  const agentDir = writeAgentDir({
+  // A per-job copy of the shared cache, never the cache itself: a writable shared directory is how the next run ends up
+  // loading someone else's code.
+  const agentDir = seedAgentDir();
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  writeAgentDir({
     model,
-    baseUrl,
+    baseUrl: proxy.baseUrl,
     apiKeyEnv,
     // The action's input wins when set, so a deployment can clamp a repo's numbers without editing its config.
     settings: { ...config.modelSettings, maxTokens: Number(env.AI_REVIEW_MAX_TOKENS || config.modelSettings.maxTokens) },
@@ -236,7 +358,6 @@ export async function run() {
     "-e", join(import.meta.dirname, "extensions", "report-finding.js"),
     "-e", join(import.meta.dirname, "extensions", "turn-cap.js"),
     "-e", join(import.meta.dirname, "extensions", "truncate-results.js"),
-    "-e", join(import.meta.dirname, "extensions", "scope.js"),
     // pi-rules is the loader: it matches each rule's paths against the file being worked on and injects what applies,
     // at agent start and after every tool result. Given as a package spec rather than a path, so pi installs and caches
     // it; pinned to a commit, which pi never refetches once checked out.
@@ -248,18 +369,35 @@ export async function run() {
   const events = [];
   // Written as it arrives: a run that is killed leaves the trace of how far it got, which is the run worth reading.
   const trace = openTrace(eventsFile);
+  const workspace = process.cwd();
+  const tempDir = dirname(findingsFile);
+  // The whole environment the child gets. `--clearenv` means this list is all there is: no PATH from the runner, no
+  // key, no token, nothing inherited by accident.
+  const childEnv = {
+    PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    HOME: agentDir,
+    TMPDIR: agentDir,
+    PI_CODING_AGENT_DIR: agentDir,
+    AI_REVIEW_FINDINGS: findingsFile,
+    AI_REVIEW_NOTES: notesFile,
+    AI_REVIEW_MAX_TURNS: String(config.maxTurns),
+    AI_REVIEW_RESULT_CHARS: String(config.resultChars),
+    AI_REVIEW_TIME_BUDGET_MIN: String(env.AI_REVIEW_TIME_BUDGET_MIN || config.timeBudgetMinutes),
+    // A per-run token the loopback proxy accepts, standing where the real key would be.
+    [apiKeyEnv]: proxy.token,
+  };
+  for (const dir of [workspace, agentDir, tempDir]) chownTree(dir);
+  const sandboxed = sandboxArgv({
+    argv: [env.PI_BIN || "pi", ...args],
+    workspace,
+    writable: [agentDir, tempDir],
+    envForChild: childEnv,
+  });
+
   await new Promise((resolve, reject) => {
-    const child = spawn(env.PI_BIN || "pi", args, {
+    const child = spawn("bwrap", sandboxed, {
       stdio: ["pipe", "pipe", "pipe"],
-      env: {
-        ...env,
-        PI_CODING_AGENT_DIR: agentDir,
-        AI_REVIEW_FINDINGS: findingsFile,
-        AI_REVIEW_NOTES: notesFile,
-        AI_REVIEW_MAX_TURNS: String(config.maxTurns),
-        AI_REVIEW_RESULT_CHARS: String(config.resultChars),
-        AI_REVIEW_TIME_BUDGET_MIN: String(env.AI_REVIEW_TIME_BUDGET_MIN || config.timeBudgetMinutes),
-      },
+      env: { PATH: env.PATH || "/usr/bin:/bin" },
     });
     // The instructions are in the appended system prompt; this is the kickoff, not a second copy of them.
     child.stdin.end("Review the change described in your instructions. Report what you find with report_finding.");

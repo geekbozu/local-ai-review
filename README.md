@@ -66,6 +66,19 @@ action prints a notice and exits 0, so adding the workflow everywhere is safe:
 
 Second, one job:
 
+### Requirements on the runner
+
+**`bubblewrap` must be installed.** The review runs inside it, and the action skips with a notice rather than running
+unsandboxed when it is missing — an advisory review that silently loses its boundary is worse than no review.
+
+```bash
+apt-get update && apt-get install -y bubblewrap   # once per runner, not per job
+bwrap --ro-bind / / true && echo ok               # verify: needs CAP_SYS_ADMIN or unprivileged user namespaces
+```
+
+The action does not install it. The threat model, what the sandbox does and does not prevent, and why no guard reads
+a command string: [`docs/security.md`](docs/security.md).
+
 ```yaml
 jobs:
   ai-review:
@@ -80,7 +93,9 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false         # the review may not commit or push
-      - uses: geekbozu/local-ai-review@v1
+      # Pin a commit, not the tag. A tag moves; a self-hosted runner caches the action by its ref, so what a moved tag
+      # means in practice is a change that arrives at a time nobody chose.
+      - uses: geekbozu/local-ai-review@<40-character-sha>
         with:
           base-ref: origin/${{ github.base_ref }}
           base-url: ${{ vars.AI_REVIEW_BASE_URL }}   # e.g. http://model-box.example/v1
@@ -98,6 +113,7 @@ jobs:
 | `base-ref` | `origin/main` | Ref to diff against |
 | `api-key-env` | `AI_REVIEW_API_KEY` | Name of the variable holding the key. The value is never written to disk |
 | `max-tokens` | `16384` | Output ceiling per turn. Too small and a thinking model spends it all thinking and reports nothing |
+| `upload-events` | `false` | Upload the raw event stream as an artifact. It records tool results — file contents — so it is off by default; a private repository that wants the trace for triage can turn it on |
 | `post` | `true` | `false` reviews without commenting, for a first look |
 | `pr-number` | event's | Override for a manual run |
 

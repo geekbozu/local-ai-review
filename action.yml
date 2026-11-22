@@ -24,10 +24,10 @@ inputs:
     description: Optional wall-clock backstop, 0 for off. Effort is allocated by what the diff touches; set this only to stop a wedged run.
     required: false
     default: "0"
-  reviewer:
-    description: Git ref of this action to run, so a repo can pin a version.
+  upload-events:
+    description: Upload the raw event stream as an artifact. It records tool results, which are file contents, so it is off by default and should stay off in a public repository.
     required: false
-    default: main
+    default: "false"
   pr-number:
     description: Pull request number. Defaults to the event's.
     required: false
@@ -83,8 +83,23 @@ runs:
     # Machine tooling, not a project dependency: it must not enter any consumer's package.json.
     # Idempotent: on a self-hosted runner the tool is already there from the previous job, and installing it again is
     # a network round trip per job for nothing. On a hosted runner this degrades to the old behaviour.
-    - name: Install pi
+    # Required, not optional. A review that silently loses its boundary is worse than no review, so a runner without
+    # bubblewrap gets a notice and a skip rather than an unsandboxed run. This action does not install bubblewrap: a
+    # step that installs a sandbox runs outside the sandbox.
+    - name: Sandbox
+      id: sandbox
       if: steps.configured.outputs.ready == 'true'
+      shell: bash
+      run: |
+        if command -v bwrap >/dev/null 2>&1; then
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "ready=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::bubblewrap is not installed on this runner, so the review is skipped. Install it once per runner (apt-get install bubblewrap) and see docs/security.md."
+        fi
+
+    - name: Install pi
+      if: steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true'
       shell: bash
       run: |
         if command -v pi >/dev/null 2>&1; then
@@ -94,7 +109,7 @@ runs:
         fi
 
     - name: Review
-      if: steps.configured.outputs.ready == 'true'
+      if: steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true'
       shell: bash
       env:
         PI_BIN: pi
@@ -118,7 +133,7 @@ runs:
     # Rendered separately from the run so it survives a kill: the events stream to disk as they arrive, and this
     # reads whatever got there. A cancelled job is exactly the one worth reading.
     - name: Render the transcript
-      if: always() && steps.configured.outputs.ready == 'true'
+      if: always() && steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true'
       shell: bash
       env:
         EVENTS_FILE: ${{ runner.temp }}/ai-review-events.jsonl
@@ -126,7 +141,7 @@ runs:
       run: node "${{ github.action_path }}/src/render-transcript.mjs"
 
     - name: Post
-      if: steps.configured.outputs.ready == 'true' && inputs.post == 'true'
+      if: steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true' && inputs.post == 'true'
       shell: bash
       env:
         GITHUB_TOKEN: ${{ github.token }}
@@ -141,15 +156,32 @@ runs:
       run: node "${{ github.action_path }}/src/post.mjs"
 
     # After Post, unlike a plain log upload, because posting is what writes the dropped findings into the notes.
-    # `always()` keeps the cancelled run, which is the one worth reading.
+    # `always()` keeps the cancelled run, which is the one worth reading. The event stream is deliberately not in this
+    # glob: it records tool results, which is to say file contents, so it is a separate opt-in artifact below.
     - name: Keep the run
-      if: always() && steps.configured.outputs.ready == 'true'
+      if: always() && steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: ai-review-run
-        # The glob, not a list: events (the trace), findings (what it decided), prompt (what it was told), notes
-        # (what it decided not to post and why). The budget, the anti-spin instruction and the risk hints are all
-        # tuned by reading these against each other, and the prompt is the half that is otherwise unrecoverable.
-        path: ${{ runner.temp }}/ai-review-*
+        # findings (what it decided), prompt (what it was told), notes (what it decided not to post and why),
+        # transcript (the readable trace). The budget, the instructions and the risk hints are all tuned by reading
+        # these against each other, and the prompt is the half that is otherwise unrecoverable.
+        path: |
+          ${{ runner.temp }}/ai-review-findings.jsonl
+          ${{ runner.temp }}/ai-review-prompt.txt
+          ${{ runner.temp }}/ai-review-notes.txt
+          ${{ runner.temp }}/ai-review-transcript.md
+        if-no-files-found: ignore
+        retention-days: 7
+
+    # Opt-in, and off by default. A tool result is a file's contents: on a public repository this artifact is public
+    # too, which makes the reviewer a way to publish what it read. Turn it on where the repository is private and the
+    # trace is worth having for triage.
+    - name: Keep the event stream
+      if: always() && inputs.upload-events == 'true' && steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ai-review-events
+        path: ${{ runner.temp }}/ai-review-events.jsonl
         if-no-files-found: ignore
         retention-days: 7

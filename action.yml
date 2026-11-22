@@ -9,9 +9,11 @@ inputs:
   base-url:
     description: OpenAI-compatible endpoint including /v1, e.g. http://model-box.example/v1
     required: true
+  # Optional because `.ai-review.json` may name it: the repository choosing its own model is the normal case, and
+  # requiring it here would force a generic workflow to hardcode one operator's model as a default.
   model:
-    description: Model id as the endpoint knows it.
-    required: true
+    description: Model id as the endpoint knows it. Optional when .ai-review.json sets `model`.
+    required: false
   api-key-env:
     description: Name of the environment variable holding the endpoint's key. The key is never written to disk.
     required: false

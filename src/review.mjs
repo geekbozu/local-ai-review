@@ -413,7 +413,7 @@ export async function run() {
     baseUrl: proxy.baseUrl,
     apiKeyEnv,
     // The action's input wins when set, so a deployment can clamp a repo's numbers without editing its config.
-    settings: { ...config.modelSettings, maxTokens: Number(env.AI_REVIEW_MAX_TOKENS || config.modelSettings.maxTokens) },
+    settings: { ...config.modelSettings, maxTokens: Number(env.AI_REVIEW_MAX_TOKENS || 0) || config.modelSettings.maxTokens },
   });
 
   const systemPromptFile = join(agentDir, "reviewer.md");

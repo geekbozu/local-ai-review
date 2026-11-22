@@ -18,10 +18,13 @@ inputs:
     description: Name of the environment variable holding the endpoint's key. The key is never written to disk.
     required: false
     default: AI_REVIEW_API_KEY
+  # Optional, like `model`: a repository's own ceiling belongs in its config, and a default here made that unreachable —
+  # the env var was always set, so `.ai-review.json`'s maxTokens never applied. A review turn needs a few thousand tokens;
+  # a model that decides to write ten thousand of them needs a ceiling that says so.
   max-tokens:
-    description: Output ceiling per turn. Too small and a thinking model spends it all thinking and reports nothing.
+    description: Output ceiling per turn. Optional; .ai-review.json's modelSettings.maxTokens is used when this is unset.
     required: false
-    default: "16384"
+    default: ""
   time-budget-minutes:
     description: Optional wall-clock backstop, 0 for off. Effort is allocated by what the diff touches; set this only to stop a wedged run.
     required: false

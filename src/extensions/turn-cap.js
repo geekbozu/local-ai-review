@@ -12,7 +12,9 @@ import { appendFileSync } from "node:fs";
 
 export default function (pi) {
   const cap = Number(process.env.AI_REVIEW_MAX_TURNS || 100);
-  const budgetMinutes = Number(process.env.AI_REVIEW_TIME_BUDGET_MIN || 45);
+  // 0 means off. Effort is allocated by triage in review.mjs; this is only here for the case where a run is
+  // genuinely wedged, and a default would make review quality depend on machine speed.
+  const budgetMinutes = Number(process.env.AI_REVIEW_TIME_BUDGET_MIN || 0);
   const notes = process.env.AI_REVIEW_NOTES;
   const startedAt = Date.now();
   let steered = false;

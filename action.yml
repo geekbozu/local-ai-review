@@ -21,9 +21,9 @@ inputs:
     required: false
     default: "16384"
   time-budget-minutes:
-    description: Wall-clock budget. A turn cap alone is not a time bound; whichever comes first ends the exploration.
+    description: Optional wall-clock backstop, 0 for off. Effort is allocated by what the diff touches; set this only to stop a wedged run.
     required: false
-    default: "45"
+    default: "0"
   reviewer:
     description: Git ref of this action to run, so a repo can pin a version.
     required: false

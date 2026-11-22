@@ -5,6 +5,7 @@
 
 import { execFileSync } from "node:child_process";
 import { matchesAny, ruleApplies } from "./config.mjs";
+import { triageBrief } from "./triage.mjs";
 
 const CAP = 12000; // characters of rules; beyond this the rules crowd out the diff
 
@@ -60,12 +61,13 @@ You have the whole checkout and you may run things to check a suspicion. Do not 
 Work through every changed file before you finish, then reply with a short summary of what you checked and what you
 did not.`;
 
-export function buildPrompt({ rules, diff, touched, severityFloor = "low" }) {
+export function buildPrompt({ rules, diff, touched, severityFloor = "low", triage }) {
   const files = touched.map((f) => `- ${f}`).join("\n");
   return [
     INSTRUCTIONS(severityFloor),
     rules ? `## Rules\n\n${rules}` : "",
     `## Changed files\n\n${files}`,
+    triage ? triageBrief(triage) : "",
     `## The change\n\n${diff}`,
   ]
     .filter(Boolean)

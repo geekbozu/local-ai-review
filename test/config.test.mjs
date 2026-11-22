@@ -90,3 +90,33 @@ test("the endpoint base always ends in /v1", async () => {
   assert.equal(normaliseBaseUrl(""), "");
   assert.equal(normaliseBaseUrl(undefined), "");
 });
+
+test("triage weights effort by what the change touches", async () => {
+  const { triage } = await import("../src/lib/triage.mjs");
+
+  const docs = triage(["README.md", "docs/notes.md"], { maxTurns: 100 });
+  assert.equal(docs.highRisk.length, 0);
+  assert.equal(docs.semantic.length, 0);
+  assert.ok(docs.turns <= 6, "a docs-only change gets a handful of turns, not dozens");
+
+  const rls = triage(["supabase/migrations/0001_x.sql", "src/services/events.ts"], { maxTurns: 100 });
+  assert.equal(rls.highRisk.length, 2);
+  assert.ok(rls.turns > rls.mechanical.length + 10, "an RLS change is not a docs change");
+
+  const mixed = triage(["pnpm-lock.yaml", "src/pages/landing.tsx"], { maxTurns: 100 });
+  assert.deepEqual(mixed.mechanical, ["pnpm-lock.yaml"]);
+  assert.deepEqual(mixed.semantic, ["src/pages/landing.tsx"]);
+
+  assert.equal(triage(["a.ts"], { maxTurns: 4 }).turns, 4, "the configured cap still wins");
+});
+
+test("the prompt states the allocation, and names the risky files", async () => {
+  const { triage, triageBrief } = await import("../src/lib/triage.mjs");
+  const t = triage(["src/services/scores.ts", "README.md"], { maxTurns: 100 });
+  const brief = triageBrief(t);
+  assert.match(brief, /Look hard at/);
+  assert.match(brief, /src\/services\/scores\.ts/);
+  assert.match(brief, /Skim/);
+  assert.match(brief, /README\.md/);
+  assert.match(brief, /budget of about \d+ turn/);
+});

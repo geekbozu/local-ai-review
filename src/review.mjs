@@ -12,6 +12,7 @@ import { normaliseBaseUrl } from "./lib/url.mjs";
 import { openedFiles, uncovered } from "./lib/coverage.mjs";
 import { parseDiff, touchedPaths } from "./lib/diff.mjs";
 import { readRules, buildPrompt } from "./lib/prompt.mjs";
+import { triage } from "./lib/triage.mjs";
 
 const git = (args, dir = process.cwd()) =>
   new Promise((resolve, reject) => {
@@ -133,7 +134,14 @@ export async function run() {
   }
 
   const rules = readRules(process.cwd(), baseRef, config, touched);
-  const prompt = buildPrompt({ rules, diff, touched, severityFloor: config.severityFloor });
+  // Effort is allocated from the paths touched, not from the clock: a lockfile PR should be cheap and an RLS PR
+  // should not be. The turn budget follows the same signal.
+  const budget = triage(touched, { maxTurns: config.maxTurns });
+  const prompt = buildPrompt({ rules, diff, touched, severityFloor: config.severityFloor, triage: budget });
+  console.error(
+    `[ai-review] triage: ${budget.highRisk.length} high-risk, ${budget.semantic.length} semantic, ` +
+      `${budget.mechanical.length} mechanical — budget ${budget.turns} turns`,
+  );
 
   const agentDir = writeAgentDir({
     model,

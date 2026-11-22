@@ -23,9 +23,12 @@ import { restoreRulesFromBase } from "./lib/rules.mjs";
 const PI_RULES = process.env.PI_RULES || "git:github.com/code-yeongyu/pi-rules@96b65ff340de262e4fd7c09b191b97b5f3e67a19";
 import { riskHints } from "./lib/triage.mjs";
 
+// A checkout the runner owns can be owned by someone else when a previous run chowned it, and git then refuses with
+// "detected dubious ownership" — which reads as "not a git repository". We are the process that checked this tree out,
+// so trust it explicitly rather than depend on who owns it.
 const git = (args, dir = process.cwd()) =>
   new Promise((resolve, reject) => {
-    const child = spawn("git", ["-C", dir, ...args], { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn("git", ["-C", dir, "-c", `safe.directory=${dir}`, ...args], { stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
     let err = "";
     child.stdout.on("data", (d) => (out += d));

@@ -181,6 +181,7 @@ async function main() {
   const repo = process.env.GITHUB_REPOSITORY;
   const pr = process.env.PR_NUMBER;
   const base = process.env.BASE_REF || "origin/main";
+  const ws = process.env.GITHUB_WORKSPACE || process.cwd();
   const findingsFile = process.env.FINDINGS_FILE || "findings.jsonl";
   const eventsFile = process.env.EVENTS_FILE;
   const diffFile = process.env.DIFF_FILE;
@@ -188,7 +189,7 @@ async function main() {
 
   const diff = diffFile
     ? readFileSync(diffFile, "utf8")
-    : execFileSync("git", ["-C", process.env.GITHUB_WORKSPACE || process.cwd(), "diff", "-U10", `${resolveBase(base)}...HEAD`], {
+    : execFileSync("git", ["-C", ws, "-c", `safe.directory=${ws}`, "diff", "-U10", `${resolveBase(base)}...HEAD`], {
         encoding: "utf8",
         maxBuffer: 64 * 1024 * 1024,
       });
@@ -200,7 +201,7 @@ async function main() {
   // The floor comes from the commit, not from the working tree: the agent holds `write`/`edit`, and a floor it can
   // raise is a review that can silence itself. Base ref, matching the rules, so a PR cannot rewrite the config that
   // decides how its own findings are graded.
-  const floor = (loadConfigFromRef(base, process.env.GITHUB_WORKSPACE || process.cwd()) || loadConfig())?.severityFloor || "low";
+  const floor = (loadConfigFromRef(base, ws) || loadConfig())?.severityFloor || "low";
   const { posted, dropped } = buildReview({ findings: loadFindings(findingsFile), diff, floor });
 
   // Everything the run found and did not post, with the body a reader would have needed. The summary has room for a

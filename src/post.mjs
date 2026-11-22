@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { parseDiff, resolveQuote, normalise } from "./lib/diff.mjs";
 import { openedFiles, uncovered } from "./lib/coverage.mjs";
-import { loadConfig } from "./lib/config.mjs";
+import { loadConfig, loadConfigFromRef } from "./lib/config.mjs";
 
 export function loadFindings(file) {
   let raw = "";
@@ -44,6 +44,17 @@ const marker = (f, line) =>
     .slice(0, 16);
 
 const SEVERITY = { critical: 0, high: 1, medium: 2, low: 3 };
+
+// A finding's body is model output, and the model has read a pull request written by someone who wanted a comment
+// posted. Markdown is not inert: `@` pings people and teams, a remote image beacons each reader's address back to its
+// host, raw HTML survives, and nothing else caps the size. Posting is the one place the agent's words reach people.
+const MAX_BODY = 2000;
+export const sanitise = (body) =>
+  String(body)
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/<\/?[a-zA-Z][^>]*>/g, "")
+    .replace(/@/g, "\\@")
+    .slice(0, MAX_BODY);
 
 export function buildReview({ findings, diff, floor = "low" }) {
   const files = parseDiff(diff);
@@ -92,7 +103,7 @@ export function buildReview({ findings, diff, floor = "low" }) {
       side: "RIGHT",
       severity: f.severity,
       marker: id,
-      body: `**${f.severity}** — ${f.body}\n\n<!-- ai-review:${id} -->`,
+      body: `**${f.severity}** — ${sanitise(f.body)}\n\n<!-- ai-review:${id} -->`,
     });
   }
 
@@ -180,7 +191,13 @@ async function main() {
     : execFileSync("git", ["diff", "-U10", `${resolveBase(base)}...HEAD`], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 
   // The floor is the repo's choice, not this tool's; a repo with no config gets the default.
-  const floor = loadConfig()?.severityFloor || "low";
+  // The floor comes from the commit, not from the working tree: the agent holds `write`/`edit`, and a floor it can
+  // raise is a review that can silence itself. Base ref, matching the rules, so a PR cannot rewrite the config that
+  // decides how its own findings are graded.
+  // The floor comes from the commit, not from the working tree: the agent holds `write`/`edit`, and a floor it can
+  // raise is a review that can silence itself. Base ref, matching the rules, so a PR cannot rewrite the config that
+  // decides how its own findings are graded.
+  const floor = (loadConfigFromRef(base) || loadConfig())?.severityFloor || "low";
   const { posted, dropped } = buildReview({ findings: loadFindings(findingsFile), diff, floor });
 
   // Everything the run found and did not post, with the body a reader would have needed. The summary has room for a

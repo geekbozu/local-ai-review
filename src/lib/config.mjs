@@ -5,6 +5,7 @@
 // reviewed, rather than a workflow someone copied by hand.
 
 import { readFileSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 
 export const CONFIG_FILE = ".ai-review.json";
 
@@ -52,6 +53,32 @@ export function loadConfig(dir = process.cwd()) {
     throw new Error(`${CONFIG_FILE} is not valid JSON: ${err.message}`);
   }
 
+  return validate(raw, path);
+}
+
+// The poster reads the configuration from a commit, never from the working tree. The agent can write files, and the
+// severity floor that decides what gets posted must not be one of them: an injected agent that raises the floor to
+// `critical` suppresses its own findings. A PR's config change takes effect when it is merged, which is also when it
+// would take effect for rules.
+export function loadConfigFromRef(ref, dir = process.cwd()) {
+  let text;
+  try {
+    text = execFileSync("git", ["-C", dir, "show", `${ref}:${CONFIG_FILE}`], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  } catch {
+    return null;
+  }
+
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch (err) {
+    throw new Error(`${ref}:${CONFIG_FILE} is not valid JSON: ${err.message}`);
+  }
+
+  return validate(raw, `${ref}:${CONFIG_FILE}`);
+}
+
+function validate(raw, path) {
   // Nested objects merge field by field: a repo that sets only `temperature` keeps every other default, which is
   // the difference between a config file and a trap.
   const config = {

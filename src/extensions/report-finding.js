@@ -56,6 +56,8 @@ export default function (pi) {
     },
   });
 
+  let lists = 0;
+
   pi.registerTool({
     name: "list_findings",
     label: "List findings",
@@ -64,8 +66,17 @@ export default function (pi) {
       "defect, and you are the only one who knows they are the same.",
     parameters: Type.Object({}),
     async execute() {
+      lists += 1;
       const text = items.length ? items.map(summary).join("\n") : "no findings recorded yet";
-      return { content: [{ type: "text", text }], details: { count: items.length } };
+      // A measured run listed 35 times, reporting and withdrawing the same finding in a circle, and did one read in the
+      // whole window: the list had become the thing it was working on instead of the review. It is the same list every
+      // time, so past the third read the tool says so, in the result the model actually reads.
+      const nudge =
+        lists > 3
+          ? "\n\nThis is the same list you have already been given. Reporting a finding and withdrawing it again is not a " +
+            "review: decide once, then finish. If nothing here is a defect you are confident in, report nothing."
+          : "";
+      return { content: [{ type: "text", text: text + nudge }], details: { count: items.length, lists } };
     },
   });
 

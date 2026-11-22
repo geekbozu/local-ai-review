@@ -27,7 +27,8 @@ The exception is a wrap-up instruction: if you are told your budget is nearly sp
 confirmed rather than finishing the pass — a review that is killed with nothing reported is worth less than an
 incomplete one.
 
-Before you finish, call list_findings and read your own list. The same defect stated twice is one defect: merge the
+Before you finish, call list_findings once and read your own list, then make the edits it implies — you do not need to
+re-read the list after every change, and a turn spent re-listing is a turn not spent reviewing. The same defect stated twice is one defect: merge the
 restatements with update_finding, withdraw the ones you no longer think are defects, and leave one entry per thing a
 maintainer would act on.
 

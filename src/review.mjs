@@ -84,6 +84,12 @@ export function watch({ onFinding, onTurn, onFatal }) {
 
       if (event.type === "tool_execution_start") {
         args.set(event.toolCallId, event.args || {});
+        // The list can shrink, so the count in these lines is what the agent *did*, and the file is what it *has*. The
+        // two disagreed the moment withdraw_finding existed: the summary reported 19 while the file held 7.
+        const a = event.args || {};
+        if (event.toolName === "report_finding") console.error(`[ai-review] reported: ${a.severity} ${a.path}`);
+        else if (event.toolName === "withdraw_finding") console.error(`[ai-review] withdrew: ${a.id}`);
+        else if (event.toolName === "update_finding") console.error(`[ai-review] updated: ${a.id}`);
         continue;
       }
 
@@ -499,12 +505,12 @@ export async function run() {
         } catch {}
         reject(new Error(`the model call failed: ${message}`));
       },
-      onFinding: (f) => console.error(`[ai-review] finding ${f.findings}: ${f.severity} ${f.path} — ${f.body.slice(0, 100)}`),
+      onFinding: () => {}, // the report/withdraw/update lines above already say what happened
       onTurn: (t) =>
         console.error(
           `[ai-review] turn ${t.turn} done at ${t.seconds}s` +
             (t.tools.length ? ` — ${t.tools.join(", ")}` : " — no tools") +
-            ` — ${t.findings} finding(s) so far`,
+            ` — ${t.findings} reported`,
         ),
     });
     child.stdout.on("data", (d) => {

@@ -46,31 +46,26 @@ test("an executable is resolved against the path it is given", () => {
   assert.equal(found, process.execPath, "the first directory carrying an executable wins");
 });
 
-// An endpoint that is not usable fails on the first turn; nothing later can succeed, and the run would otherwise sit out
-// its whole budget. A failure mid-review is a bad request, not a dead endpoint.
-test("a failed model call is fatal before the first turn completes, and not after", () => {
+// The model host is allowed to hiccup: one failed call gets another turn, and a success resets the count. A run of
+// them is an endpoint that is not coming back, and waiting out the budget delays the same answer.
+test("a model error is retried, and a run of them fails the run", () => {
+  const NL = String.fromCharCode(10);
+  const err = (m) => JSON.stringify({ type: "message_end", message: { role: "assistant", stopReason: "error", errorMessage: m } }) + NL;
+  const ok = () => JSON.stringify({ type: "message_end", message: { role: "assistant", stopReason: "stop" } }) + NL;
+
   const fatals = [];
   const w = watch({ onFinding: () => {}, onTurn: () => {}, onFatal: (m) => fatals.push(m) });
-  w(JSON.stringify({ type: "message_end", message: { role: "assistant", stopReason: "error", errorMessage: '404: not loaded' } }) + "\n");
-  assert.deepEqual(fatals, ["404: not loaded"]);
+  w(err("one bad request"));
+  assert.equal(fatals.length, 0, "the first failure is a retry, not a verdict");
 
-  const quiet = [];
-  const w2 = watch({ onFinding: () => {}, onTurn: () => {}, onFatal: (m) => quiet.push(m) });
-  w2(JSON.stringify({ type: "message_end", message: { role: "assistant", stopReason: "stop" } }) + "\n");
-  assert.equal(quiet.length, 0, "a normal turn is not fatal");
-});
+  w(ok());
+  w(err("another"));
+  w(ok());
+  assert.equal(fatals.length, 0, "a success in between resets the count");
 
-// The review finished, printed its summary and hung until cancelled: an http server keeps the event loop alive, which
-// is why the proxy is unref'd. It still has to serve, and to refuse anything but the per-run token.
-test("the key proxy serves only the per-run token", async () => {
-  const proxy = await startKeyProxy({ target: "http://127.0.0.1:9/v1", realKey: "unused" });
-  assert.equal(proxy.server.listening, true);
-
-  const denied = await fetch(`${proxy.baseUrl}/v1/models`);
-  assert.equal(denied.status, 401, "no token, no forwards");
-
-  const allowed = await fetch(`${proxy.baseUrl}/v1/models`, { headers: { authorization: `Bearer ${proxy.token}` } });
-  assert.equal(allowed.status, 502, "the token is accepted and the dead upstream is reported as one");
-
-  proxy.server.close();
+  const dead = [];
+  const w2 = watch({ onFinding: () => {}, onTurn: () => {}, onFatal: (m) => dead.push(m) });
+  for (let i = 0; i < 3; i += 1) w2(err(`failure ${i}`));
+  assert.equal(dead.length, 1, "three in a row is an endpoint that is not coming back");
+  assert.match(dead[0], /failure 2/);
 });

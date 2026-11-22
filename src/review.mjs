@@ -5,7 +5,7 @@
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
-import { writeFileSync, mkdirSync, readFileSync, readdirSync, existsSync, cpSync, accessSync, constants } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync, readdirSync, existsSync, cpSync, accessSync, constants, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, delimiter } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -39,6 +39,9 @@ const git = (args, dir = process.cwd()) =>
 // A 45-minute job that prints nothing for 45 minutes is indistinguishable from a wedged one, and the only evidence
 // afterwards was a JSONL file on a runner that no longer exists. This prints as it goes and the same numbers go to
 // the step summary, so a log answers "was it working" without a re-run.
+// Enough consecutive failures to call the endpoint dead rather than flaky. Three spaced ≈ a minute of trying.
+const MAX_MODEL_ERRORS = 3;
+
 export function watch({ onFinding, onTurn, onFatal }) {
   let buffer = "";
   let turn = 0;
@@ -48,6 +51,7 @@ export function watch({ onFinding, onTurn, onFatal }) {
   // said `finding 1: undefined undefined`.
   const args = new Map();
   const started = Date.now();
+  let consecutiveErrors = 0;
 
   return (chunk) => {
     buffer += chunk.toString("utf8");
@@ -63,17 +67,19 @@ export function watch({ onFinding, onTurn, onFatal }) {
         continue;
       }
 
-      // A failure before any turn has completed means the endpoint is not usable — a 404 for a model the device does not
-      // have loaded, a bad key, a wrong base URL. Nothing later can succeed, and the run would sit out its budget first.
-      // A failure mid-review is not that: it may be one bad request, so it stays a failed turn.
-      if (
-        turn === 0 &&
-        event.type === "message_end" &&
-        event.message?.role === "assistant" &&
-        event.message?.stopReason === "error"
-      ) {
-        onFatal?.(event.message.errorMessage || "the model call failed");
-        continue;
+      // The model host is allowed to hiccup. One failed call is a bad request: the agent gets another turn, and a
+      // success resets the count. A run of them is an endpoint that is not coming back — a model the device does not
+      // have loaded, a dead key — and waiting out the rest of the budget would only delay the same answer.
+      if (event.type === "message_end" && event.message?.role === "assistant") {
+        if (event.message.stopReason === "error" || event.message.errorMessage) {
+          consecutiveErrors += 1;
+          if (consecutiveErrors >= MAX_MODEL_ERRORS) {
+            onFatal?.(event.message.errorMessage || "the model call failed");
+            continue;
+          }
+        } else {
+          consecutiveErrors = 0;
+        }
       }
 
       if (event.type === "tool_execution_start") {
@@ -588,14 +594,20 @@ export async function run() {
     );
   }
 
+  // Nothing the run created should outlive it. The proxy is unref'd, so it cannot hold the process open — that was the
+  // difference between a review that finishes and a job that hangs until it is cancelled — and the per-job agent dir is
+  // removed rather than left in the runner's temp for the next job to find.
+  try {
+    proxy.server.close();
+  } catch {}
+  try {
+    rmSync(agentDir, { recursive: true, force: true });
+  } catch {}
+
   console.log(JSON.stringify({ ...result, config: undefined }));
 
-  // A run that lost the model part-way through is not a review that found nothing. The summary is printed first so the
-  // evidence survives, and the exit code says what happened: advisory, so the colour blocks nothing, but a green run
-  // that reviewed half a change is a lie someone would act on.
-  if (failures.length) {
-    throw new Error(`the model call failed ${failures.length} time(s); this review is incomplete`);
-  }
+  // Errors that the agent recovered from are reported and not fatal: a review that lost one request and finished is a
+  // finished review. The run only fails when the endpoint stopped answering, which the watch above already decided.
   return result;
 }
 

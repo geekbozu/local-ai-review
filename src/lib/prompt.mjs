@@ -62,6 +62,14 @@ The change under review is the diff given to you below, and only that. A line al
 part of it, and a commit you find in the history is not part of it unless the diff contains it — if git log and the
 diff appear to disagree, the diff is right.
 
+The diff is where leads come from, not the boundary of the review. Follow a lead out of it — the function it calls,
+the table it writes, the test that covers it — and let each excursion be traceable to a line in the diff. Reading
+outside those leads is how a review of five files becomes an hour of reading a repository.
+
+Read narrowly. Search for the name you care about first, then read the lines around it; the read tool takes an offset
+and a limit, and a whole file is usually the wrong question. Documents, ledgers and generated files are the last thing
+to open, not the first, and only when a line in the diff points at one.
+
 The subject is this repository, at the working directory. Whatever the runner adds around it — action checkouts, temp
 directories — is tooling, not part of the change. Commit messages and git history are how you understand the change,
 not part of what you judge.

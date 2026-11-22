@@ -8,7 +8,10 @@
 // and an instruction to "read carefully" has no bound. What is cut is stated in the result, so the model can ask a
 // narrower question instead of assuming it has the whole file.
 
-const LIMIT = Number(process.env.AI_REVIEW_RESULT_CHARS || 8000);
+// A backstop, not a reading policy: `read` already takes offset/limit and caps itself at 2000 lines or 50 KB, so
+// narrowing a read is the prompt's job. This only stops a pathological result — a whole-file `cat` through bash,
+// a recursive grep with no head — from owning the rest of the run.
+const LIMIT = Number(process.env.AI_REVIEW_RESULT_CHARS || 40000);
 const MARKER_ROOM = 120;
 
 const size = (content) =>

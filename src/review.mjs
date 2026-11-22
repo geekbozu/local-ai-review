@@ -202,6 +202,7 @@ export async function run() {
     "-e", join(import.meta.dirname, "extensions", "report-finding.js"),
     "-e", join(import.meta.dirname, "extensions", "turn-cap.js"),
     "-e", join(import.meta.dirname, "extensions", "truncate-results.js"),
+    "-e", join(import.meta.dirname, "extensions", "scope.js"),
     "--model", `local/${model}`,
   ];
 

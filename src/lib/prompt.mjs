@@ -72,8 +72,8 @@ Each body stands alone. Do not refer to another finding.
 - codemode does several lookups in one turn — grep, filter, then read what mattered — instead of a turn each.
 - Documents, ledgers and generated files are the last thing to open, and only when a line in the diff points at one.
 - You may run anything to confirm a suspicion. Do not commit or push.
-- The subject is this repository at the working directory. Whatever the runner adds around it — action checkouts,
-  temp directories — is tooling, not part of the change.
+- The subject is this repository, at the working directory. Anything outside that directory is tooling: reads there
+  are refused, and a lead worth following is in the change or in the code it points at.
 - Stop when the work is done. If you covered every changed file and found nothing, stop: saying so is a result, and
   looking for a reason to keep going is how a review becomes expensive without becoming better.`;
 

@@ -276,9 +276,10 @@ export async function run() {
   if (!env[apiKeyEnv]) throw new Error(`${apiKeyEnv} is empty; the endpoint needs a key`);
 
   if (!bwrapAvailable()) {
-    console.log("bubblewrap is not installed on this runner, so the review cannot be sandboxed and is skipped.");
-    console.log("Install it once per runner (apt-get install bubblewrap); see docs/security.md.");
-    return { skipped: "no sandbox" };
+    throw new Error(
+      "bubblewrap is not installed, so the review cannot be sandboxed. Install it once per runner " +
+        "(apt-get install bubblewrap); see docs/security.md.",
+    );
   }
 
   // The child never sees the endpoint key: it sees a loopback proxy that holds it.

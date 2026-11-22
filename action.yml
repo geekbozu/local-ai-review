@@ -83,9 +83,10 @@ runs:
     # Machine tooling, not a project dependency: it must not enter any consumer's package.json.
     # Idempotent: on a self-hosted runner the tool is already there from the previous job, and installing it again is
     # a network round trip per job for nothing. On a hosted runner this degrades to the old behaviour.
-    # Required, not optional. A review that silently loses its boundary is worse than no review, so a runner without
-    # bubblewrap gets a notice and a skip rather than an unsandboxed run. This action does not install bubblewrap: a
-    # step that installs a sandbox runs outside the sandbox.
+    # Required, not optional, and failing is the point. A runner without bubblewrap is misconfigured, and that is worth
+    # a red X rather than a green run that quietly reviewed nothing — `continue-on-error` keeps it advisory, so the
+    # colour costs nobody a merge. This action does not install bubblewrap: a step that installs a sandbox runs outside
+    # the sandbox.
     - name: Sandbox
       id: sandbox
       if: steps.configured.outputs.ready == 'true'
@@ -95,7 +96,8 @@ runs:
           echo "ready=true" >> "$GITHUB_OUTPUT"
         else
           echo "ready=false" >> "$GITHUB_OUTPUT"
-          echo "::notice::bubblewrap is not installed on this runner, so the review is skipped. Install it once per runner (apt-get install bubblewrap) and see docs/security.md."
+          echo "::error::bubblewrap is not installed on this runner, so the review cannot run sandboxed. Install it once per runner (apt-get install bubblewrap); see docs/security.md. This is a failure, not a skip: an advisory review that loses its boundary silently is worse than a red X."
+          exit 1
         fi
 
     - name: Install pi

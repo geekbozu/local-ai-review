@@ -194,3 +194,36 @@ test("a torn last line does not lose the transcript", async () => {
   ];
   assert.match(renderTranscript(lines), /kept/);
 });
+
+test("a repository can supply instructions, and they land in the prompt", async () => {
+  const { loadConfig } = await import("../src/lib/config.mjs");
+  const { buildPrompt } = await import("../src/lib/prompt.mjs");
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+
+  const dir = mkdtempSync(join(tmpdir(), "ai-review-instr-"));
+  writeFileSync(join(dir, ".ai-review.json"), JSON.stringify({ instructions: ["Do not review the vendored action."] }));
+  const config = loadConfig(dir);
+  assert.deepEqual(config.instructions, ["Do not review the vendored action."]);
+
+  const prompt = buildPrompt({ rules: "", diff: "d", touched: ["a.ts"], instructions: config.instructions });
+  assert.match(prompt, /## From this repository/);
+  assert.match(prompt, /Do not review the vendored action\./);
+});
+
+test("instructions must be non-empty strings", async () => {
+  const { loadConfig } = await import("../src/lib/config.mjs");
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const dir = mkdtempSync(join(tmpdir(), "ai-review-instr-bad-"));
+  writeFileSync(join(dir, ".ai-review.json"), JSON.stringify({ instructions: ["ok", "  "] }));
+  assert.throws(() => loadConfig(dir), /instructions must be an array of non-empty strings/);
+});
+
+test("the generic prompt names no runner path", async () => {
+  const { buildPrompt } = await import("../src/lib/prompt.mjs");
+  const prompt = buildPrompt({ rules: "", diff: "d", touched: ["a.ts"] });
+  assert.doesNotMatch(prompt, /_work\/_actions/, "runner layout belongs to the repository's config, not here");
+});

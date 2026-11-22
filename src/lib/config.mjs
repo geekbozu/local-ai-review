@@ -14,6 +14,9 @@ const DEFAULTS = {
   // Repo-specific risk patterns (regular expressions, case-insensitive). The action's own defaults are domain
   // words only; anything naming a layout belongs here, in the repository that has that layout.
   riskHints: [],
+  // Lines appended to the prompt verbatim. Anything a repository wants the reviewer told that is not a rule
+  // file and not a risk pattern: what is out of scope here, what it should ignore, how this codebase works.
+  instructions: [],
   severityFloor: "low", // low | medium | high | critical
   maxTurns: 60, // a runaway stop, not a tuning knob: high enough to be obviously too high
   thinking: "low", // off | minimal | low | medium | high
@@ -36,6 +39,9 @@ export function loadConfig(dir = process.cwd()) {
 
   if (!Array.isArray(config.rules)) throw new Error(`${CONFIG_FILE}: rules must be an array of paths or globs`);
   if (!Array.isArray(config.ignore)) throw new Error(`${CONFIG_FILE}: ignore must be an array of paths or globs`);
+  if (!Array.isArray(config.instructions) || config.instructions.some((i) => typeof i !== "string" || !i.trim())) {
+    throw new Error(`${CONFIG_FILE}: instructions must be an array of non-empty strings`);
+  }
   if (!Array.isArray(config.riskHints)) throw new Error(`${CONFIG_FILE}: riskHints must be an array of regular expressions`);
   for (const p of config.riskHints) {
     try {

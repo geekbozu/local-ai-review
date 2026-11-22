@@ -152,7 +152,14 @@ export async function run() {
   // Risk hints order the agent's attention; they do not scale its effort. Thoroughness is uniform, the budget is
   // one number, and what is bounded is the work rather than how much any particular line deserves.
   const hints = riskHints(touched, config.riskHints || []);
-  const prompt = buildPrompt({ rules, diff, touched, severityFloor: config.severityFloor, hints });
+  const prompt = buildPrompt({
+    rules,
+    diff,
+    touched,
+    severityFloor: config.severityFloor,
+    hints,
+    instructions: config.instructions,
+  });
   console.error(
     `[ai-review] ${touched.length} file(s), ${hints.highRisk.length} in a high-risk area — budget ${config.maxTurns} turns`,
   );

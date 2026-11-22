@@ -58,9 +58,9 @@ Rules for what you report:
 
 You have the whole checkout and you may run things to check a suspicion. Do not commit or push.
 
-The subject is this repository, at the working directory. Anything under a _work/_actions/ path is the tooling that
-runs you — worth a look if a result confuses you, never something to review. Commit messages and git history are how
-you understand the change, not part of what you judge.
+The subject is this repository, at the working directory. Whatever the runner adds around it — action checkouts, temp
+directories — is tooling, not part of the change. Commit messages and git history are how you understand the change,
+not part of what you judge.
 
 Work through every changed file before you finish. Give a one-line change the same attention as a rewrite: the size
 of a diff says nothing about the risk in it.
@@ -70,13 +70,18 @@ move on — do not spend turns re-confirming that nothing is wrong. If you have 
 nothing, stop: saying so is a result, not a failure, and looking for a reason to keep going is how a review becomes
 expensive without becoming better.`;
 
-export function buildPrompt({ rules, diff, touched, severityFloor = "low", hints }) {
+export function buildPrompt({ rules, diff, touched, severityFloor = "low", hints, instructions = [] }) {
   const files = touched.map((f) => `- ${f}`).join("\n");
+  const supplied = instructions.length
+    ? ["## From this repository", "", ...instructions.map((i) => `- ${i}`)].join("\n")
+    : "";
+
   return [
     INSTRUCTIONS(severityFloor),
     rules ? `## Rules\n\n${rules}` : "",
     `## Changed files\n\n${files}`,
     hints ? thoroughBrief(hints) : "",
+    supplied,
     `## The change\n\n${diff}`,
   ]
     .filter(Boolean)

@@ -73,16 +73,53 @@ runs:
           echo "ready=true" >> "$GITHUB_OUTPUT"
         fi
 
+    # setup-node caches the runtime under the runner's own `_work/_tool`, which a self-hosted runner keeps between
+    # jobs — so this downloads Node once per board, not once per job.
     - uses: actions/setup-node@v4
       if: steps.opted-in.outputs.enabled == 'true' && steps.configured.outputs.ready == 'true'
       with:
         node-version: 22
 
     # Machine tooling, not a project dependency: it must not enter any consumer's package.json.
+    # Idempotent: on a self-hosted runner the tool is already there from the previous job, and installing it again is
+    # a network round trip per job for nothing. On a hosted runner this degrades to the old behaviour.
     - name: Install pi
       if: steps.configured.outputs.ready == 'true'
       shell: bash
-      run: npm i -g @earendil-works/pi-coding-agent
+      run: |
+        if command -v pi >/dev/null 2>&1; then
+          echo "pi already installed"
+        else
+          npm i -g @earendil-works/pi-coding-agent
+        fi
+
+    # Not on npm, so pinned by commit and cloned. It loads rules on demand — matching each rule's paths against the
+    # file being worked on — instead of the action concatenating them into the prompt.
+    - name: Install pi-rules
+      if: steps.configured.outputs.ready == 'true'
+      shell: bash
+      env:
+        PI_RULES_SHA: 96b65ff340de5c5b7d80a32a91d6a1e6b9b2f2a4
+      run: |
+        set -euo pipefail
+        dest="$RUNNER_TEMP/pi-rules"
+        # Cached beside the working directory, which is the one directory a self-hosted runner keeps between jobs
+        # (it is the `_work` volume). On a hosted runner this is a per-job path, so it simply does not help — and does
+        # not hurt. Keyed by the pinned commit, so a version bump re-fetches and nothing else does.
+        cache="$(dirname "$GITHUB_WORKSPACE")/.pi-cache"
+        dest="$cache/$PI_RULES_SHA"
+        if [ -f "$dest/src/index.ts" ] && [ -d "$dest/node_modules/picomatch" ]; then
+          echo "pi-rules already installed at $dest"
+        else
+          mkdir -p "$cache"
+          git init -q "$dest"
+          git -C "$dest" remote add origin https://github.com/code-yeongyu/pi-rules
+          git -C "$dest" fetch -q --depth 1 origin "$PI_RULES_SHA"
+          git -C "$dest" checkout -q "$PI_RULES_SHA"
+          npm install --prefix "$dest" --omit=dev --no-audit --no-fund --silent
+        fi
+        test -f "$dest/src/index.ts"
+        echo "PI_RULES_EXT=$dest/src/index.ts" >> "$GITHUB_ENV"
 
     - name: Review
       if: steps.configured.outputs.ready == 'true'

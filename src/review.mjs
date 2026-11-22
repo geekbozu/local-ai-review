@@ -14,7 +14,8 @@ import { openTrace } from "./lib/trace.mjs";
 import { renderTranscript } from "./lib/transcript.mjs";
 
 import { parseDiff, touchedPaths } from "./lib/diff.mjs";
-import { readRules, buildPrompt } from "./lib/prompt.mjs";
+import { buildPrompt } from "./lib/prompt.mjs";
+import { restoreRulesFromBase } from "./lib/rules.mjs";
 import { riskHints } from "./lib/triage.mjs";
 
 const git = (args, dir = process.cwd()) =>
@@ -73,7 +74,13 @@ export function writeAgentDir({ model, baseUrl, apiKeyEnv, settings }) {
 
   // A model with no thinking parameter gets no compatibility shim: sending reasoning_effort to a template that does not
   // read it is ignored at best. The wire format is the repo's choice — see modelSettings.thinkingFormat.
-  const compat = settings.reasoning && settings.thinkingFormat !== "none" ? { thinkingFormat: settings.thinkingFormat } : undefined;
+  // supportsMidConvoSystemMessages is load-bearing, not cosmetic: pi-rules injects rules as a mid-conversation system
+  // message, and without this the adapter folds it into the *leading* prompt, rewriting every token after the fold and
+  // dropping the prefix cache to single-digit percentages. Measured in this repo's own tooling.
+  const compat = {
+    ...(settings.reasoning && settings.thinkingFormat !== "none" ? { thinkingFormat: settings.thinkingFormat } : {}),
+    supportsMidConvoSystemMessages: true,
+  };
   const levels = { minimal: "minimal", low: "low", medium: "medium", high: "high" };
 
   writeFileSync(
@@ -151,14 +158,14 @@ export async function run() {
     return { skipped: "empty diff" };
   }
 
-  const rules = readRules(process.cwd(), baseRef, config, touched);
+  // The extension loads and matches the rules; this only makes sure it reads the base branch's copy of them.
+  const rules = restoreRulesFromBase(process.cwd(), baseRef, config);
   // Risk hints order the agent's attention; they do not scale its effort. Thoroughness is uniform, the budget is
   // one number, and what is bounded is the work rather than how much any particular line deserves.
   const hints = riskHints(touched, config.riskHints || []);
   // No diff in the prompt: the change arrives as a file list and the command that prints it. What the agent can get
   // with one command does not belong in the text it is given, and on a large PR the diff is the largest thing there.
   const prompt = buildPrompt({
-    rules,
     baseRef,
     touched,
     severityFloor: config.severityFloor,
@@ -166,7 +173,8 @@ export async function run() {
     instructions: config.instructions,
   });
   console.error(
-    `[ai-review] ${touched.length} file(s), ${hints.highRisk.length} in a high-risk area — budget ${config.maxTurns} turns`,
+    `[ai-review] ${touched.length} file(s), ${hints.highRisk.length} in a high-risk area — budget ${config.maxTurns} turns — ` +
+      `rules from base: ${rules.restored.length} restored, ${rules.removed.length} removed`,
   );
 
   const agentDir = writeAgentDir({
@@ -203,6 +211,9 @@ export async function run() {
     "-e", join(import.meta.dirname, "extensions", "turn-cap.js"),
     "-e", join(import.meta.dirname, "extensions", "truncate-results.js"),
     "-e", join(import.meta.dirname, "extensions", "scope.js"),
+    // pi-rules is the loader: it matches each rule's paths against the file being worked on and injects what applies,
+    // at agent start and after every tool result. Path supplied by the job; absent, the review simply has no rules.
+    ...(env.PI_RULES_EXT ? ["-e", env.PI_RULES_EXT] : []),
     "--model", `local/${model}`,
   ];
 

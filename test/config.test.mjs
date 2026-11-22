@@ -276,9 +276,11 @@ test("every module the run imports resolves — a missing export is caught here,
   await import("../src/review.mjs");
   await import("../src/post.mjs");
   const prompt = await import("../src/lib/prompt.mjs");
-  for (const name of ["readRules", "listRuleFiles", "buildPrompt", "thoroughBrief"]) {
+  for (const name of ["buildPrompt", "thoroughBrief"]) {
     assert.equal(typeof prompt[name], "function", `prompt.mjs must export ${name}`);
   }
+  const rules = await import("../src/lib/rules.mjs");
+  assert.equal(typeof rules.restoreRulesFromBase, "function");
 });
 
 test("the model entry is built from config, and a non-thinking model sends no shim", async () => {
@@ -297,11 +299,11 @@ test("the model entry is built from config, and a non-thinking model sends no sh
   };
 
   const thinking = read({ ...base, reasoning: true, thinkingFormat: "openai" });
-  assert.deepEqual(thinking.model.compat, { thinkingFormat: "openai" });
+  assert.deepEqual(thinking.model.compat, { thinkingFormat: "openai", supportsMidConvoSystemMessages: true });
   assert.equal(thinking.model.reasoning, true);
 
   const plain = read({ ...base, reasoning: false, thinkingFormat: "none" });
-  assert.equal(plain.model.compat, undefined, "no reasoning_effort for a model that has no thinking parameter");
+  assert.deepEqual(plain.model.compat, { supportsMidConvoSystemMessages: true }, "no reasoning_effort, but the cache-preserving flag stays");
   assert.equal(plain.model.reasoning, false);
 
   assert.equal(thinking.model.samplingParams.temperature, 0.3);

@@ -35,7 +35,7 @@ action prints a notice and exits 0, so adding the workflow everywhere is safe:
 | `rules` | `[]` | Paths or globs, read **from the base ref** so a PR cannot rewrite the rules that judge it. A file with `paths:` frontmatter applies only to matching changed files; one without applies to the whole review |
 | `ignore` | `[]` | Paths the review should not comment on |
 | `severityFloor` | `low` | `low`, `medium`, `high`, `critical` |
-| `maxTurns` | `100` | Turn budget before the agent is steered to wrap up. A turn is not a fixed amount of time |
+| `maxTurns` | `60` | Runaway stop. The agent is steered to wrap up and report at this many turns; it is not a tuning knob, so pick a number that is obviously too high and leave it |
 | `thinking` | `low` | `off`, `minimal`, `low`, `medium`, `high` |
 | `enabled` | `true` | `false` opts out without deleting the file |
 | `model` | action input | Override the model per repo |

@@ -22,7 +22,7 @@ test("an empty object is enough to opt in, with defaults", () => {
   assert.ok(config);
   assert.deepEqual(config.rules, []);
   assert.equal(config.severityFloor, "low");
-  assert.equal(config.maxTurns, 100);
+  assert.equal(config.maxTurns, 60);
 });
 
 test("enabled: false is an opt-out that keeps the file", () => {

@@ -12,7 +12,7 @@ const DEFAULTS = {
   rules: [], // paths or globs, relative to the repo root, read from the base ref
   ignore: [], // paths the review should not comment on
   severityFloor: "low", // low | medium | high | critical
-  maxTurns: 100,
+  maxTurns: 60, // a runaway stop, not a tuning knob: high enough to be obviously too high
   thinking: "low", // off | minimal | low | medium | high
   model: null, // null = the action input decides
 };

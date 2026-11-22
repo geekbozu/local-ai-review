@@ -35,6 +35,7 @@ Numbers are that hardware's; the shapes generalise.
 | F11 | A custom tool that is not named in the client's tool allowlist is **silently absent** — the model has no way to report and simply does not. Runs "succeed" with zero output |
 | F12 | Line endings are inconsistent by nature: Windows checkouts, CRLF diffs, mixed files. A trailing CR once silently broke every path match |
 | F13 | Model updates on such a device are delete-then-download; there is no update call, and an offline device reports everything as up to date |
+| F16 | **Uniform effort is what cost 66 minutes, and size is the wrong proxy for fixing it.** A two-file change ran 66 minutes because the prompt asked for the same depth everywhere; the first instinct — scale effort by path class and diff size — would have told the agent to skim a rules file, where the smallest change is the most dangerous | measured on the first real pull request |
 
 ## 3. Decisions
 
@@ -54,6 +55,7 @@ Numbers are that hardware's; the shapes generalise.
 | D12 | A **turn cap** steers a wrap-up message at a budget, with the job timeout as backstop | F10: there is no step limit, and an unbounded agent on local hardware can eat a job | Trusting the model to stop; timeout alone |
 | D13 | A **coverage gate** reads the tool-call stream and names any changed file the agent never opened | Answers "did it really look" from events rather than from the model's summary | Trusting the agent's claim |
 | D14 | Cost is bounded by pinning thinking to low and setting the ceiling in both places | F4, F5, F6 | Thinking off (cheaper, merges findings); defaults |
+| D15 | **Thoroughness is uniform; only the work is bounded.** One turn budget, no scaling by file class or diff size, and the prompt tells the agent both halves: give every changed line the same attention, and stop when you have either found something or satisfied yourself | A one-line change to a rules file or an RLS policy is the most expensive thing a change can touch, so classifying by path and asking for a skim would skip exactly the dangerous case. A wall clock binds quality to machine speed for the same reason | Effort scaled by diff size or file class (tried, reversed: the classifier would have told the agent to skim `.pi/rules`); a wall-clock budget as the primary control (kept as an opt-in backstop for a wedged run) | geekbozy1011 | F10, F16 |
 
 ## 4. Shape
 
@@ -101,3 +103,10 @@ changed the design: the tool allowlist (F11), the two ceilings (F5), the cache i
 endings (F12). Two numbers were wrong on the way and are corrected here rather than quietly: an output ceiling was
 attributed to the hardware before it turned out to be the client's own model entry (F5), and a 67 tok/s decode
 figure was measured on a counting stream and reported as general when the same model answers prose at 24 (F9).
+
+**2026-11-21 — the first real review worked, and its 66 minutes taught the wrong lesson first.** Two files, one
+inline comment, and the comment was correct: it caught a decision number cited from a design doc that had been
+superseded. The duration was the problem — a 60-turn budget spent 66 minutes — and the first fix was per-class effort
+scaling, which D15 reverses. A path classifier says a rules file is mechanical; a rules file is the case where one
+line changes how everything else is judged. The bound is now a single turn budget with an instruction to stop, and
+the path list only orders attention.

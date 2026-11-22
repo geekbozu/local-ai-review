@@ -271,3 +271,19 @@ test("a marker from someone else's comment does not count", () => {
     "unknown identity still trusts bots only, which a person cannot fake",
   );
 });
+
+// findings.jsonl is a writable bind, so the agent can append a line the tool schema would never allow: an invalid
+// severity drops the finding, and the dropped list printed severity and path raw until this was found.
+test("a hand-written finding cannot smuggle markdown through the dropped line", () => {
+  const hostile = {
+    path: "x](<u> @team ![a](https://evil.example/b) " + "A".repeat(50000),
+    quote: "q",
+    severity: "nonsense @team ![b](https://evil.example/c)",
+    body: "b",
+  };
+  const { dropped } = buildReview({ findings: [hostile], diff: DIFF });
+  const text = summarise({ posted: [], dropped, uncovered: [], turns: 1 });
+  assert.ok(!/(?<!\\)@team/.test(text), "no mention survives, in the head line either");
+  assert.ok(!text.includes("evil.example"), "no image survives");
+  assert.ok(text.length < 2000, "and the head line is capped, so it cannot fail the POST");
+});

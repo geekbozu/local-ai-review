@@ -154,7 +154,12 @@ export function summarise({ posted, dropped, uncovered: missing = [], turns }) {
       // back medium, medium and low across three runs of one diff. A low that is really a medium has to be readable
       // here, because the artifact is not where anyone looks.
       ...dropped.slice(0, 25).map((d) => {
-        const head = `${d.severity ? `**${d.severity}** ` : ""}${d.reason}${d.path ? ` — \`${d.path}\`` : ""}`;
+        // Every part of this line is agent-controlled: `findings.jsonl` is a writable bind, so a line with an invalid
+        // severity is dropped and then printed here — severity and path included. Sanitised and capped like the rest,
+        // and backticks removed from the path so a code span cannot be closed early.
+        const sev = d.severity ? `**${sanitise(String(d.severity)).slice(0, 40)}** ` : "";
+        const where = d.path ? ` — \`${sanitise(String(d.path)).replace(/`/g, "").slice(0, 200)}\`` : "";
+        const head = `${sev}${d.reason}${where}`;
         // Model output, in a rendered review body: the same sanitiser as a posted comment, and capped. A dropped finding
         // is not a safe finding, and an uncapped list of them is a way to make the POST fail entirely.
         if (d.body) return `- ${head}\n  ${sanitise(d.body).slice(0, 400)}`;
@@ -212,7 +217,16 @@ async function main() {
   const frozenDir = process.env.FROZEN_DIR;
   const frozenDiff = frozenDir ? join(frozenDir, "diff.txt") : null;
   const frozenMeta = frozenDir ? join(frozenDir, "meta.json") : null;
-  const frozen = frozenDiff && existsSync(frozenDiff) ? JSON.parse(readFileSync(frozenMeta, "utf8")) : null;
+  // Fail closed. A frozen directory that was expected and cannot be read means the review never got as far as freezing,
+  // and the only alternative is reading the checkout — which is the tree the agent may have rewritten, and the exact hole
+  // the freeze exists to close.
+  let frozen = null;
+  if (frozenDir) {
+    if (!frozenDiff || !existsSync(frozenDiff) || !existsSync(frozenMeta)) {
+      throw new Error(`no frozen diff at ${frozenDir}: the review did not complete its setup, so nothing can be posted`);
+    }
+    frozen = JSON.parse(readFileSync(frozenMeta, "utf8"));
+  }
 
   const diff = frozen
     ? readFileSync(frozenDiff, "utf8")
@@ -230,7 +244,7 @@ async function main() {
   // The floor comes from the commit, not from the working tree: the agent holds `write`/`edit`, and a floor it can
   // raise is a review that can silence itself. Base ref, matching the rules, so a PR cannot rewrite the config that
   // decides how its own findings are graded.
-  const floor = frozen?.floor || (loadConfigFromRef(base, ws) || loadConfig())?.severityFloor || "low";
+  const floor = frozen ? frozen.floor : (loadConfigFromRef(base, ws) || loadConfig())?.severityFloor || "low";
   const { posted, dropped } = buildReview({ findings: loadFindings(findingsFile), diff, floor });
 
   // Everything the run found and did not post, with the body a reader would have needed. The summary has room for a

@@ -31,9 +31,12 @@ argued with can be argued around; a mount that is read-only cannot.
 
 ### 2 · Writes are confined to the workspace
 
-`bwrap` binds exactly two writable trees: `$GITHUB_WORKSPACE` and a per-job directory under the runner's temp path.
-`/tmp` is a fresh tmpfs. The shared agent cache is **never mounted at all** — each job gets a copy of it, so a run
-benefits from the warm cache without being able to poison the next one.
+`bwrap` binds four writable paths: `$GITHUB_WORKSPACE`, the per-job agent directory, and exactly two files in the
+runner's temp — the findings file and the notes file. `/tmp` is a fresh tmpfs. The shared agent cache is **never mounted
+at all** — each job gets a copy, so a run benefits from a warm cache without being able to poison the next one.
+
+Binding two files rather than their directory matters: the coverage report is computed from the event stream, and a
+writable stream would let a review report on files it never opened.
 
 Writes inside the checkout are **allowed on purpose**: a reviewer that suspects a loop is quadratic should be able
 to write a benchmark and run it. That work is discarded with the runner, and it cannot influence what is posted
@@ -42,7 +45,8 @@ to write a benchmark and run it. That work is discarded with the runner, and it 
 ### 3 · What the agent says is untrusted
 
 - **The poster reads what was frozen before the agent ran.** The diff and the severity floor are written to a
-  directory outside every writable bind, at the start of the review, and the poster reads those. This matters because
+  per-job directory outside every writable bind, at the start of the review, and the poster reads those. If they are
+  missing, the poster fails rather than falling back to the checkout. This matters because
   `.git` lives inside the writable tree: an agent that moves `origin/main` chooses both the diff its quotes anchor to
   and the floor that decides what posts. Reading the commit *after* the agent has run was only safe against an honest
   agent, which is the same as not being safe.

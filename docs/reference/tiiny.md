@@ -21,10 +21,12 @@ those notes that changes how a reviewer has to be written, kept here so a missin
 | **Models load and unload** | `GET /api/v1/models/running` lists what is loaded; loading is asynchronous, so poll `/v1/models` rather than assuming |
 | **`need_update` reads false while offline** | "No updates" can mean "no internet". A model update is `DELETE` then `POST /api/v1/models/{id}/download`; there is no update call in the API or the CLI |
 | **Response speed depends on output** | The server reports `timings.predicted_per_second`. Repetitive output (counting, tables) measured ~3x faster than prose on the same model in the same session, which is consistent with speculative decoding. Plan on the slow figure |
+| **A request is cut at about ten minutes** | `504 "Upstream model server timed out."` — and prefill is most of it: a 128k prompt costs ~5 minutes before the first token, 64k ~2 minutes, 32k under a minute. A growing chat caches its earlier part, so the cost arrives as turns getting slower and then not arriving at all. Bound the context, not just the turns |
 | **Prompt caching is real when enabled** | A repeated prefix reports `cached_tokens`, and a repeat of a 10.8k-token prompt answered in ~1 s against ~17 s cold. Do not rewrite the prefix mid-conversation — a mid-conversation *system* message folds into the leading prompt and invalidates everything after it |
 
 ## What that means for this action
 
-The last two are why `src/extensions/turn-cap.js` steers with a **user** message rather than a system one, and why
-`src/review.mjs` sets the output ceiling in **both** places it can be set. The first is why the base URL is
+The last three are why `src/extensions/turn-cap.js` steers with a **user** message rather than a system one, why
+`src/review.mjs` sets the output ceiling in **both** places it can be set, and why the turn budget also stops on a token
+count (`contextBudget`, default 64k) rather than on turns alone. The first is why the base URL is
 normalised on the way in.

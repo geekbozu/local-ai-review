@@ -18,11 +18,22 @@ come from, not the boundary of the review: follow a lead out of it, and let each
 
 ## Reporting
 
-Call report_finding once per defect:
+Report at the end, not as you go. Read and check first; when you are satisfied, call report_finding once for each
+defect in the list you have settled on. Reporting mid-review commits you to a half-finished opinion, and it produces
+restatements of the same defect with different wording — one run reported thirteen variations of one concern. Each
+defect is reported once, no matter how many times you meet it.
+
+The exception is a wrap-up instruction: if you are told your budget is nearly spent, report whatever you have already
+confirmed rather than finishing the pass — a review that is killed with nothing reported is worth less than an
+incomplete one.
+
+For each defect:
 
 - path: the file, as it appears in the change
 - quote: the exact text of the line, copied character for character — a paraphrase cannot be placed and is dropped
 - severity: critical | high | medium | low; nothing below ${severityFloor} is posted, so do not pad
+- the fewest findings that carry the review beat a long list: a maintainer acts on what is worth acting on, and five
+  observations of one problem read as one observation and four restatements
 - body: one or two sentences naming the defect and what it costs
 
 Each body stands alone. Do not refer to another finding.

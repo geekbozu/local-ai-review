@@ -37,7 +37,9 @@ Numbers are that hardware's; the shapes generalise.
 | F13 | Model updates on such a device are delete-then-download; there is no update call, and an offline device reports everything as up to date |
 | F16 | **Uniform effort is what cost 66 minutes, and size is the wrong proxy for fixing it.** A two-file change ran 66 minutes because the prompt asked for the same depth everywhere; the first instinct — scale effort by path class and diff size — would have told the agent to skim a rules file, where the smallest change is the most dangerous | measured on the first real pull request |
 | F17 | **A turn count is not progress**, and a guard on silence fires in the middle of the work. On the planted-defect run the agent had reported nothing at turn 15 and reported four findings at turns 32–35, the first of them the planted contradiction | measured on the planted defect |
-| F18 | A private-address pattern written as `192\.168` followed by three more octets only matches a five-octet address, so `192.168.68.82` and `172.16.4.9` passed the leak audit and only `10.0.0.5` was caught | found by publishing a handoff through it |
+| F18 | A private-address pattern whose alternatives carry two octets and then ask for three more only matches a five-octet address, so the two most common private ranges passed the audit and only the shortest one was caught | found by publishing a handoff through it |
+| F19 | **A self-hosted runner caches a moving action tag.** `@v1` is downloaded into the runner's action directory and reused; when the tag moves, the change appears from the next job on that board and not before. Two boards can therefore be running two versions of the same tag at the same moment | a fix that kept not appearing in logs, four jobs after it was pushed |
+| F20 | **Severity is the unstable output, not recall.** One unchanged two-line defect came back rated high, medium, medium, low and low across runs of one diff; finding it again was common. Since the floor decides what is posted, a stable review is impossible while the rating is a coin toss | six runs over one diff, two thinking levels |
 
 ## 3. Decisions
 
@@ -59,6 +61,8 @@ Numbers are that hardware's; the shapes generalise.
 | D14 | Cost is bounded by pinning thinking to low and setting the ceiling in both places | F4, F5, F6 | Thinking off (cheaper, merges findings); defaults |
 | D15 | **Thoroughness is uniform; only the work is bounded.** One budget, the same for every file, and the prompt tells the agent both halves: give every changed line the same attention, and stop when you have either found something or satisfied yourself | A one-line change to a rules file or an RLS policy is the most expensive thing a change can touch, so classifying by path and asking for a skim would skip exactly the dangerous case | Effort scaled by diff size or file class (tried, reversed: the classifier would have told the agent to skim `.pi/rules`); a budget that grows with the diff | geekbozy1011 | F10, F16 |
 | D16 | Findings the poster will not place — below the floor, unanchorable, a duplicate — are written to a **notes file** with their body, and the artifact carries it. The posted summary keeps the folded list of reasons | The best finding on the planted-defect run was a correct medium, and it was dropped, and all a reader got was 120 characters of its quote. A body cannot be re-derived from a quote, and the summary is the wrong place for something not posted | Body in the summary; dropping silently, which is what happened | F3 |
+| D17 | **De-duplication identity is path + resolved line + severity + the first quoted line**, not the raw quote | Identity was stricter than placement, which is backwards: the anchor already tolerates indentation and a two-line quote, so one defect quoted two ways posted twice, while two different bodies for the same line posted twice as well for the opposite reason. Severity stays in the key, because a re-rating across the floor is a finding that just became visible | Hashing the body (defeated by rewording); hashing the raw quote (defeated by indentation); the line alone (collapses two real defects on one line) | F20 |
+| D18 | **Coverage is reported, not enforced.** The gate names changed files the agent never opened; nothing forces the read | A changed file left unread is either a judgement (it looked at the diff and moved on) or a failure (it stopped early), and only the second is worth reacting to. Forcing the read produces a file opened to satisfy a counter: coverage goes green, the review does not improve, and the summary starts lying more subtly | A finish-gate on unopened files; treating unread files as a failed review | F10 |
 
 ## 4. Shape
 
@@ -86,8 +90,11 @@ A consuming repo adds `.ai-review.json` and one job. See the README.
 | Quote → line resolution, and dropping what cannot be placed | **Proven** — unit tests plus a real run resolving 3/3 |
 | The turn cap stops a loop | **Proven** on a small repo; **F10** is the caveat in a large one |
 | A budget nudge actually steers | **Open** — every nudge this extension made threw `Agent is already processing`, so the silence trigger that fired at turn 15 changed nothing. Fixed with `deliverAs: "steer"`; unverified until a run reaches a budget |
-| A quote spanning two lines anchors on its first line | **Proven** — unit test, and the planted-defect finding it was written for |
-| Coverage gate names an unopened file | **Proven** in tests; a real run covered all changed files |
+| A quote spanning two lines anchors on its first line | **Proven** in tests; a run has not yet exercised it, because every multi-line catch of it so far was dropped below the severity floor before the anchor was reached |
+| De-duplication survives a reworded body, a re-indented quote and a two-line quote | **Proven** in tests; not yet in a run, because no run has repeated a finding since the change |
+| The finding log names severity, path and body | **Proven** in tests; every run since has used an older cached tag (F19) |
+| Severity is stable for one defect | **Not proven, and the opposite was measured** — F20 |
+| Coverage gate names an unopened file | **Proven** — it names them, and on most runs there are two or three. The gate works; the reviews are what is incomplete |
 | One review posts as inline threads, and a re-run posts none | **Proven** — three threads, then `alreadyPresent: 3, posted: 0` |
 | Cache stays warm across turns, including after a steer | **Proven** — per-turn cache growth across a capped run |
 | Credential stripping blocks a push | **Proven** by mechanism: with no persisted header and no helper, git cannot authenticate |
@@ -97,8 +104,9 @@ A consuming repo adds `.ai-review.json` and one job. See the README.
 
 | # | Question | Blocks |
 |---|---|---|
-| Q2 | Whether a second pass should grade the findings, since self-grading is the weak point | Nothing; deferred |
+| Q2 | Whether a second pass should grade the findings, since self-grading is the weak point — **F20 is the case for it**: the same defect rated high, medium and low, and the grade decides whether anyone sees it | Nothing as an advisory tool; anything that trusts the severity |
 | Q3 | Reviewing significant changes rather than every push | Noise on small follow-up pushes |
+| Q4 | Why two or three changed files go unopened on most runs — early stop, ordering, or the prompt's permission to stop when satisfied | Nothing; it is reported, not hidden (D18) |
 
 ## 7. Implementation log
 
@@ -131,7 +139,7 @@ optional backstop is now the bound the consumer sets (D12), at 45 minutes agains
 **2026-11-22 — the leak audit was the thing leaking.** Publishing a handoff through `tools/leak-audit.mjs` produced
 one finding, for a Windows path, on a document that also named two private addresses, three board hostnames, an
 internal hostname and the consumer's pull request. The private-address pattern had two octets in its alternatives and
-three more after them, so it matched `10.0.0.5` and nothing in 192.168/16 or 172.16/12 (F18). The document is gone;
+three more after them, so it caught one private range and let the other two through (F18). The document is gone;
 this entry stays because the pattern bug is the kind that reads as working.
 
 **2026-11-22 — the review's own workflow, because a run-level cancel is not something a job can survive.** The
@@ -141,3 +149,25 @@ job-level concurrency cannot help, because the cancel happens above the job. Mov
 `cancel-in-progress: false` is the smallest arrangement where a review finishes, at the cost of wall time on a
 two-board pool. The queue semantics themselves are unverified — proving them needs a push while a review runs, which
 costs another full cycle — so that is a claim to check rather than trust.
+
+**2026-11-22 — the effort level was not the lever; the rating was.** Eleven runs over one diff with one planted defect
+(a comment claiming twenty minutes above a ninety-minute timeout), first with thinking off and then at low. Off: found
+in four of seven runs, rated medium, medium, low, low. Low: found in three of four, rated high, low, low, for roughly a
+third more wall time per turn. Recall moved slightly and cost and variance moved with it; the severity did not narrow
+at all. Neither mode failed to see the two lines once it opened the file, so the answer to "does thinking help" here
+is: not enough to pay for, and the thing that decides whether the finding is ever read is its grade. That makes Q2
+measured rather than suspected (F20).
+
+It also reframed the planted defect. A stale comment is a **low**, so the reviewer grading it low is right more often
+than the test was, and the floor is doing the job it was set to do. Treat the fixture as a *did it find it* test — not
+a *did it post it* test — or the next session will "fix" a correct grade.
+
+**2026-11-22 — a moved tag is not a live change.** A fix was pushed, and the log line it repaired stayed wrong for four
+more jobs. The boards cache an action under its ref directory and reuse it; the tag is resolved when a job starts, not
+when it is pushed, so two boards can be running two versions of `@v1` at once (F19). Anything that compares runs has to
+pin a commit, or at least record which one each run actually got. Nothing about this is visible from the workflow side.
+
+**2026-11-22 — most runs leave two or three changed files unread.** The coverage gate named them every time, which is
+it working. The decision was not to enforce a read (D18): from outside, a file skipped as irrelevant and a file never
+reached look identical, and a finish-gate would produce files opened to satisfy a counter — coverage green, review
+unchanged, summary quietly less honest. Distinguishing the two is Q4, and it is not built.

@@ -147,7 +147,10 @@ export async function run() {
   }
 
   const baseRef = env.BASE_REF || "origin/main";
-  const model = env.AI_REVIEW_MODEL || config.model;
+  // The repo's config wins: a workflow input is a deployment default for every repo that runs the action, while
+  // `model` in .ai-review.json is one repository saying "this one". The old order made the config unreachable,
+  // because the workflow always supplies its default and an env var that is always set is not a fallback.
+  const model = config.model || env.AI_REVIEW_MODEL;
   const baseUrl = normaliseBaseUrl(env.AI_REVIEW_BASE_URL);
   const apiKeyEnv = env.AI_REVIEW_API_KEY_ENV || "AI_REVIEW_API_KEY";
   if (!model) throw new Error("no model: set AI_REVIEW_MODEL or .ai-review.json's model");
@@ -180,7 +183,8 @@ export async function run() {
     instructions: config.instructions,
   });
   console.error(
-    `[ai-review] ${touched.length} file(s), ${hints.highRisk.length} in a high-risk area — budget ${config.maxTurns} turns — ` +
+    `[ai-review] model ${model} (from ${config.model ? "config" : "the action input"}) · ` +
+      `${touched.length} file(s), ${hints.highRisk.length} in a high-risk area — budget ${config.maxTurns} turns — ` +
       `rules from base: ${rules.restored.length} restored, ${rules.removed.length} removed`,
   );
 

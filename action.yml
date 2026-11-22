@@ -66,7 +66,12 @@ runs:
         key="${!AI_REVIEW_API_KEY_ENV:-}"
         missing=""
         [ -n "${{ inputs.base-url }}" ] || missing="base-url"
-        [ -n "${{ inputs.model }}" ] || missing="${missing:+$missing, }model"
+        # The model may come from `.ai-review.json` instead — the repository's own choice beats a workflow's default, so
+        # an empty input is only a problem when the config does not name one either. Requiring it here skipped every
+        # review of a repository that configured its model the recommended way.
+        if [ -z "${{ inputs.model }}" ] && ! grep -q '^[[:space:]]*"model"[[:space:]]*:' .ai-review.json 2>/dev/null; then
+          missing="${missing:+$missing, }model"
+        fi
         [ -n "$key" ] || missing="${missing:+$missing, }${AI_REVIEW_API_KEY_ENV}"
         if [ -n "$missing" ]; then
           echo "ready=false" >> "$GITHUB_OUTPUT"

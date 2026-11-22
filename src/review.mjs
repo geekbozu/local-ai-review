@@ -63,10 +63,15 @@ export function watch({ onFinding, onTurn, onFatal }) {
         continue;
       }
 
-      // A model call that fails is not a slow turn: every later turn fails the same way, and the review burns the whole
-      // budget learning that. Measured: a run pointed at a model the device had evicted spent twenty minutes retrying a
-      // 404 and produced nothing. Fail the run instead.
-      if (event.type === "message_end" && event.message?.role === "assistant" && event.message?.stopReason === "error") {
+      // A failure before any turn has completed means the endpoint is not usable — a 404 for a model the device does not
+      // have loaded, a bad key, a wrong base URL. Nothing later can succeed, and the run would sit out its budget first.
+      // A failure mid-review is not that: it may be one bad request, so it stays a failed turn.
+      if (
+        turn === 0 &&
+        event.type === "message_end" &&
+        event.message?.role === "assistant" &&
+        event.message?.stopReason === "error"
+      ) {
         onFatal?.(event.message.errorMessage || "the model call failed");
         continue;
       }

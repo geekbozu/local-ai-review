@@ -46,9 +46,9 @@ test("an executable is resolved against the path it is given", () => {
   assert.equal(found, process.execPath, "the first directory carrying an executable wins");
 });
 
-// Measured on a board: a run pointed at a model the device had evicted retried a 404 for twenty minutes and produced
-// nothing, because nothing treated a failed model call as anything other than a slow turn.
-test("a failed model call is fatal, not a slow turn", () => {
+// An endpoint that is not usable fails on the first turn; nothing later can succeed, and the run would otherwise sit out
+// its whole budget. A failure mid-review is a bad request, not a dead endpoint.
+test("a failed model call is fatal before the first turn completes, and not after", () => {
   const fatals = [];
   const w = watch({ onFinding: () => {}, onTurn: () => {}, onFatal: (m) => fatals.push(m) });
   w(JSON.stringify({ type: "message_end", message: { role: "assistant", stopReason: "error", errorMessage: '404: not loaded' } }) + "\n");

@@ -72,3 +72,25 @@ test("the repository directory itself is inside the repository", async () => {
   assert.equal(insideRepo(cwd, "/work/_actions/x"), false);
   assert.equal(insideRepo(cwd, "/etc/passwd"), false);
 });
+
+test("an absolute read path counts as the file the diff names", async () => {
+  const { openedFiles, uncovered } = await import("../src/lib/coverage.mjs");
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+
+  const dir = mkdtempSync(join(tmpdir(), "ai-review-cov-"));
+  const file = join(dir, "events.jsonl");
+  const lines = [
+    { type: "tool_execution_start", toolName: "read", args: { path: "/work/repo/repo/src/a.ts" } },
+    { type: "tool_execution_start", toolName: "read", args: { path: "src/b.ts" } },
+    { type: "tool_execution_start", toolName: "bash", args: { command: "cat src/c.ts" } },
+    { type: "turn_end" },
+  ].map((e) => JSON.stringify(e));
+  writeFileSync(file, lines.join("\n"));
+
+  const { opened, turns } = openedFiles(file, { root: "/work/repo/repo" });
+  assert.equal(turns, 1);
+  assert.deepEqual([...opened].sort(), ["src/a.ts", "src/b.ts"], "an absolute path resolves against the root");
+  assert.deepEqual(uncovered(["src/a.ts", "src/c.ts"], opened), ["src/c.ts"], "bash is not a read, and says so");
+});

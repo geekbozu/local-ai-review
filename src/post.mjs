@@ -161,7 +161,9 @@ async function main() {
   const floor = loadConfig()?.severityFloor || "low";
   const { posted, dropped } = buildReview({ findings: loadFindings(findingsFile), diff, floor });
 
-  const coverage = eventsFile ? openedFiles(eventsFile) : { opened: new Set(), turns: 0 };
+  // With the repository root, so an absolute read path becomes the repo-relative one the diff uses. Without it the
+  // gate reported every changed file as unopened while the agent had read all five.
+  const coverage = eventsFile ? openedFiles(eventsFile, { root: process.cwd() }) : { opened: new Set(), turns: 0 };
   const missing = eventsFile ? uncovered([...parseDiff(diff).keys()], coverage.opened) : [];
 
   const existing = existingMarkers(await api(`/repos/${repo}/pulls/${pr}/comments?per_page=100`));

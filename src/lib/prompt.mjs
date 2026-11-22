@@ -58,6 +58,10 @@ Rules for what you report:
 
 You have the whole checkout and you may run things to check a suspicion. Do not commit or push.
 
+The change under review is the diff given to you below, and only that. A line already on the base branch is not
+part of it, and a commit you find in the history is not part of it unless the diff contains it — if git log and the
+diff appear to disagree, the diff is right.
+
 The subject is this repository, at the working directory. Whatever the runner adds around it — action checkouts, temp
 directories — is tooling, not part of the change. Commit messages and git history are how you understand the change,
 not part of what you judge.

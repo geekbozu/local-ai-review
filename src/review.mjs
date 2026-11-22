@@ -190,6 +190,7 @@ export async function run() {
     "--tools", "read,bash,edit,write,grep,find,ls,report_finding",
     "-e", join(import.meta.dirname, "extensions", "report-finding.js"),
     "-e", join(import.meta.dirname, "extensions", "turn-cap.js"),
+    "-e", join(import.meta.dirname, "extensions", "truncate-results.js"),
     "--model", `local/${model}`,
   ];
 

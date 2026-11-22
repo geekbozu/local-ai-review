@@ -152,9 +152,11 @@ export async function run() {
   // Risk hints order the agent's attention; they do not scale its effort. Thoroughness is uniform, the budget is
   // one number, and what is bounded is the work rather than how much any particular line deserves.
   const hints = riskHints(touched, config.riskHints || []);
+  // No diff in the prompt: the change arrives as a file list and the command that prints it. What the agent can get
+  // with one command does not belong in the text it is given, and on a large PR the diff is the largest thing there.
   const prompt = buildPrompt({
     rules,
-    diff,
+    baseRef,
     touched,
     severityFloor: config.severityFloor,
     hints,

@@ -23,18 +23,3 @@ export function riskHints(files, extra = []) {
   const patterns = [...DEFAULT_HINTS, ...compile(extra)];
   return { highRisk: files.filter((f) => patterns.some((re) => re.test(f))), files };
 }
-
-// Said in the prompt because "be thorough" alone invites both grinding and skimming. The two halves matter equally:
-// equally hard on every line, and stop when you have either found something or satisfied yourself.
-export function thoroughBrief({ highRisk }) {
-  if (!highRisk.length) return "";
-
-  return [
-    "## Where risk concentrates",
-    "",
-    ...highRisk.map((f) => `- \`${f}\``),
-    "",
-    "Start here, but do not stop here: a file outside this list can still be wrong, and a one-line change carries as",
-    "much risk as a rewrite. Give every changed line the same attention.",
-  ].join("\n");
-}

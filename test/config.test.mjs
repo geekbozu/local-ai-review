@@ -109,15 +109,17 @@ test("a repository can add its own risk patterns", async () => {
 });
 
 test("a risk hint is a start-here, never a skim", async () => {
-  const { riskHints, thoroughBrief } = await import("../src/lib/triage.mjs");
+  const { riskHints } = await import("../src/lib/triage.mjs");
+  const { thoroughBrief } = await import("../src/lib/prompt.mjs");
   const brief = thoroughBrief(riskHints([".pi/rules/frontend.md"], ["^\.pi/rules/"]));
-  assert.match(brief, /Where risk concentrates/);
+  assert.match(brief, /## Risk/);
   assert.match(brief, /a one-line change carries as/);
   assert.doesNotMatch(brief, /skim/i, "nothing tells the agent to skim");
 });
 
 test("no high-risk areas means no brief at all", async () => {
-  const { riskHints, thoroughBrief } = await import("../src/lib/triage.mjs");
+  const { riskHints } = await import("../src/lib/triage.mjs");
+  const { thoroughBrief } = await import("../src/lib/prompt.mjs");
   assert.equal(thoroughBrief(riskHints(["README.md"])), "");
 });
 
@@ -207,8 +209,8 @@ test("a repository can supply instructions, and they land in the prompt", async 
   const config = loadConfig(dir);
   assert.deepEqual(config.instructions, ["Do not review the vendored action."]);
 
-  const prompt = buildPrompt({ rules: "", diff: "d", touched: ["a.ts"], instructions: config.instructions });
-  assert.match(prompt, /## From this repository/);
+  const prompt = buildPrompt({ rules: "", baseRef: "origin/main", touched: ["a.ts"], instructions: config.instructions });
+  assert.match(prompt, /## Repository/);
   assert.match(prompt, /Do not review the vendored action\./);
 });
 
@@ -224,6 +226,7 @@ test("instructions must be non-empty strings", async () => {
 
 test("the generic prompt names no runner path", async () => {
   const { buildPrompt } = await import("../src/lib/prompt.mjs");
-  const prompt = buildPrompt({ rules: "", diff: "d", touched: ["a.ts"] });
+  const prompt = buildPrompt({ rules: "", baseRef: "origin/main", touched: ["a.ts"] });
   assert.doesNotMatch(prompt, /_work\/_actions/, "runner layout belongs to the repository's config, not here");
+  assert.match(prompt, /git diff -U10 origin\/main\.\.\.HEAD/, "the diff is a command, not a payload");
 });

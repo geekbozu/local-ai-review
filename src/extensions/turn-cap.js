@@ -24,24 +24,38 @@ export default function (pi) {
     if (notes) appendFileSync(notes, line + "\n");
   };
 
+  // Findings the agent has actually reported, so the budget can be spent on a review rather than on looking for one.
+  let findings = 0;
+  pi.on("tool_call", async (event) => {
+    if (event.toolName === "report_finding") findings += 1;
+  });
+
   pi.on("turn_end", async (event) => {
     if (steered) return;
 
     const turn = Number(event?.turnIndex ?? 0) + 1;
     const minutes = (Date.now() - startedAt) / 60000;
     const overTurns = turn >= cap;
-    const overTime = minutes >= budgetMinutes;
-    if (!overTurns && !overTime) return;
+    const overTime = budgetMinutes > 0 && minutes >= budgetMinutes;
+    // A review that has reported nothing by half its budget has usually stopped reviewing and started hunting. The
+    // measured case: 29 turns, 207k output tokens, no findings, cut off by the job timeout. This is the guard that
+    // does not depend on the prompt being obeyed.
+    const fruitless = findings === 0 && turn >= Math.max(8, Math.ceil(cap / 2));
+    if (!overTurns && !overTime && !fruitless) return;
 
     steered = true;
     note(
-      overTime
-        ? `time budget reached (${Math.round(minutes)} of ${budgetMinutes} min, ${turn} turns); steering wrap-up`
-        : `turn budget reached (${turn} of ${cap}, ${Math.round(minutes)} min); steering wrap-up`,
+      fruitless && !overTurns && !overTime
+        ? `${turn} turns with no findings; steering wrap-up`
+        : overTime
+          ? `time budget reached (${Math.round(minutes)} of ${budgetMinutes} min, ${turn} turns); steering wrap-up`
+          : `turn budget reached (${turn} of ${cap}, ${Math.round(minutes)} min); steering wrap-up`,
     );
 
     pi.sendUserMessage(
-      `You are out of budget after ${turn} turns and ${Math.round(minutes)} minutes. Stop exploring now. ` +
+      (fruitless && !overTurns
+        ? `You have spent ${turn} turns and reported nothing. Stop exploring now: if you found nothing worth reporting, say so and finish; if you have a finding, report it. `
+        : `You are out of budget after ${turn} turns and ${Math.round(minutes)} minutes. Stop exploring now. `) +
         `Call report_finding for anything you have already confirmed and have not yet reported, ` +
         `then reply with a one-paragraph summary of what you checked and what you did not.`,
     );

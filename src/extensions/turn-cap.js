@@ -21,6 +21,10 @@ import { appendFileSync } from "node:fs";
 export default function (pi) {
   const cap = Number(process.env.AI_REVIEW_MAX_TURNS || 60);
   const budgetMinutes = Number(process.env.AI_REVIEW_TIME_BUDGET_MIN || 0);
+  // A fourth bound, and on this hardware the one that bites: context. Every turn re-sends it, so a review that has grown
+  // to 200k of a 262k window spends minutes per turn and then the endpoint times out. Halving the window is the point
+  // where wrapping up is still cheap.
+  const contextLimit = Math.floor(Number(process.env.AI_REVIEW_CONTEXT_WINDOW || 0) / 2);
   const notes = process.env.AI_REVIEW_NOTES;
   const startedAt = Date.now();
   let steered = false;
@@ -36,6 +40,12 @@ export default function (pi) {
   let grace = 0;
   const GRACE_TURNS = 6;
 
+  const usage = (message) => {
+    const u = message && message.usage;
+    if (!u) return 0;
+    return Number(u.cacheRead || 0) + Number(u.input || 0) + Number(u.output || 0);
+  };
+
   pi.on("turn_end", async (event) => {
     if (steered) {
       grace += 1;
@@ -49,14 +59,17 @@ export default function (pi) {
     const turn = Number(event?.turnIndex ?? 0) + 1;
     const minutes = (Date.now() - startedAt) / 60000;
     const overTurns = turn >= cap;
+    const overContext = contextLimit > 0 && usage(event && event.message) >= contextLimit;
     const overTime = budgetMinutes > 0 && minutes >= budgetMinutes;
     if (!overTurns && !overTime) return;
 
     steered = true;
     note(
-      overTime
-        ? `time budget reached (${Math.round(minutes)} of ${budgetMinutes} min, ${turn} turns); steering wrap-up`
-        : `turn budget reached (${turn} of ${cap}, ${Math.round(minutes)} min); steering wrap-up`,
+      overContext && !overTurns && !overTime
+        ? `context at ${usage(event && event.message)} tokens; steering wrap-up before the prefill owns the run`
+        : overTime
+          ? `time budget reached (${Math.round(minutes)} of ${budgetMinutes} min, ${turn} turns); steering wrap-up`
+          : `turn budget reached (${turn} of ${cap}, ${Math.round(minutes)} min); steering wrap-up`,
     );
 
     pi.sendUserMessage(

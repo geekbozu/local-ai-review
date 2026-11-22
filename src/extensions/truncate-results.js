@@ -11,7 +11,13 @@
 // A backstop, not a reading policy: `read` already takes offset/limit and caps itself at 2000 lines or 50 KB, so
 // narrowing a read is the prompt's job. This only stops a pathological result — a whole-file `cat` through bash,
 // a recursive grep with no head — from owning the rest of the run.
-const LIMIT = Number(process.env.AI_REVIEW_RESULT_CHARS || 64000);
+// Two ceilings, because the two tools are not the same shape. `read` is bounded by the agent (2000 lines / 50 KB) and is
+// how a long file gets read at all, so its cap is generous. `bash` output is unbounded — a `cat` of a log, a recursive
+// grep — and a measured run reached 201,344 cached tokens with ten of them, after which every turn was a slow prefill
+// and the device timed out. Context is cumulative: the cost of a careless command is paid on every later turn.
+const READ_LIMIT = Number(process.env.AI_REVIEW_RESULT_CHARS || 64000);
+const BASH_LIMIT = Number(process.env.AI_REVIEW_BASH_CHARS || 16000);
+const limitFor = (toolName) => (toolName === "bash" ? BASH_LIMIT : READ_LIMIT);
 const MARKER_ROOM = 120;
 
 const size = (content) =>
@@ -19,6 +25,7 @@ const size = (content) =>
 
 export default function (pi) {
   pi.on("tool_result", async (event) => {
+    const LIMIT = limitFor(event.toolName);
     const before = size(event.content);
     if (before <= LIMIT) return;
 

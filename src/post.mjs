@@ -2,7 +2,8 @@
 //
 // Run standalone (CI) or imported by review.mjs. The model never supplies a line number; see lib/diff.mjs.
 
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { parseDiff, resolveQuote, normalise } from "./lib/diff.mjs";
@@ -52,7 +53,15 @@ const MAX_BODY = 2000;
 export const sanitise = (body) =>
   String(body)
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    // Images, inline and reference-style. A reference-style image needs its definition line too, or the `![x][r]` is
+    // inert text and the beacon is the definition — so both go.
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/!\[[^\]]*\]\[[^\]]*\]/g, "")
+    .replace(/^\s*\[[^\]]+\]:\s*\S+.*$/gm, "")
     .replace(/<\/?[a-zA-Z][^>]*>/g, "")
+    // A marker is how the poster recognises its own comment on a later run. Quoted in a body it would suppress a real
+    // finding forever, and the agent can compute one: it is a hash of values that are all in the diff.
+    .replace(/<!--\s*ai-review:[^>]*-->/g, "")
     .replace(/@/g, "\\@")
     .slice(0, MAX_BODY);
 
@@ -139,8 +148,11 @@ export function summarise({ posted, dropped, uncovered: missing = [], turns }) {
       // here, because the artifact is not where anyone looks.
       ...dropped.map((d) => {
         const head = `${d.severity ? `**${d.severity}** ` : ""}${d.reason}${d.path ? ` — \`${d.path}\`` : ""}`;
-        if (d.body) return `- ${head}\n  ${d.body}`;
-        return `- ${head}${d.quote ? `: \`${String(d.quote).slice(0, 120)}\`` : ""}`;
+        // Model output, in a rendered review body: the same sanitiser as a posted comment, and capped. A dropped finding
+        // is not a safe finding, and an uncapped list of them is a way to make the POST fail entirely.
+        if (d.body) return `- ${head}\n  ${sanitise(d.body).slice(0, 400)}`;
+        if (d.raw) return `- ${head}: \`${sanitise(d.raw).slice(0, 200)}\``;
+        return `- ${head}${d.quote ? `: \`${sanitise(d.quote).slice(0, 120)}\`` : ""}`;
       }),
       "",
       "</details>",
@@ -187,7 +199,16 @@ async function main() {
   const diffFile = process.env.DIFF_FILE;
   if (!repo || !pr) throw new Error("GITHUB_REPOSITORY and PR_NUMBER are required");
 
-  const diff = diffFile
+  // Frozen by the review step before the agent ran: the diff, and the floor that decides what posts. `.git` is inside
+  // the writable tree, so reading either from the checkout would let a write-only agent choose its own grade.
+  const frozenDir = process.env.FROZEN_DIR;
+  const frozenDiff = frozenDir ? join(frozenDir, "diff.txt") : null;
+  const frozenMeta = frozenDir ? join(frozenDir, "meta.json") : null;
+  const frozen = frozenDiff && existsSync(frozenDiff) ? JSON.parse(readFileSync(frozenMeta, "utf8")) : null;
+
+  const diff = frozen
+    ? readFileSync(frozenDiff, "utf8")
+    : diffFile
     ? readFileSync(diffFile, "utf8")
     : execFileSync("git", ["-C", ws, "-c", `safe.directory=${ws}`, "diff", "-U10", `${resolveBase(base)}...HEAD`], {
         encoding: "utf8",
@@ -201,7 +222,7 @@ async function main() {
   // The floor comes from the commit, not from the working tree: the agent holds `write`/`edit`, and a floor it can
   // raise is a review that can silence itself. Base ref, matching the rules, so a PR cannot rewrite the config that
   // decides how its own findings are graded.
-  const floor = (loadConfigFromRef(base, ws) || loadConfig())?.severityFloor || "low";
+  const floor = frozen?.floor || (loadConfigFromRef(base, ws) || loadConfig())?.severityFloor || "low";
   const { posted, dropped } = buildReview({ findings: loadFindings(findingsFile), diff, floor });
 
   // Everything the run found and did not post, with the body a reader would have needed. The summary has room for a

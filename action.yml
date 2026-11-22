@@ -130,6 +130,9 @@ runs:
         TRANSCRIPT_FILE: ${{ runner.temp }}/ai-review-transcript.md
         # Budget notes, and every finding the poster will not place. In runner.temp so the artifact carries them.
         NOTES_FILE: ${{ runner.temp }}/ai-review-notes.txt
+        # The diff and the severity floor, frozen before the agent runs, outside every writable bind. The workspace
+        # holds `.git`, and the agent may write there.
+        FROZEN_DIR: ${{ github.workspace }}/../ai-review-frozen
       run: node "${{ github.action_path }}/src/review.mjs"
 
     # Rendered separately from the run so it survives a kill: the events stream to disk as they arrive, and this
@@ -155,6 +158,7 @@ runs:
         AI_REVIEW_CONFIG: .ai-review.json
         # Appended to, not written: the budget notes are already in it.
         AI_REVIEW_NOTES: ${{ runner.temp }}/ai-review-notes.txt
+        FROZEN_DIR: ${{ github.workspace }}/../ai-review-frozen
       run: node "${{ github.action_path }}/src/post.mjs"
 
     # After Post, unlike a plain log upload, because posting is what writes the dropped findings into the notes.

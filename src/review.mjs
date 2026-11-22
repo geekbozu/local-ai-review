@@ -336,6 +336,17 @@ export async function run() {
   }
 
   // The extension loads and matches the rules; this only makes sure it reads the base branch's copy of them.
+  // Freeze what the poster will judge by, before the agent has run. `.git` lives in the workspace, and the workspace is
+  // the one tree the sandbox may write: an agent that moves `origin/main` can otherwise choose both the diff its quotes
+  // anchor to and the floor that decides what posts. This directory is outside every bind, so the child can read it and
+  // cannot change it.
+  const frozenDir = env.FROZEN_DIR || join(dirname(workspace), "ai-review-frozen");
+  const head = (await git(["rev-parse", "HEAD"], workspace)).trim();
+  rmSync(frozenDir, { recursive: true, force: true });
+  mkdirSync(frozenDir, { recursive: true });
+  writeFileSync(join(frozenDir, "diff.txt"), diff);
+  writeFileSync(join(frozenDir, "meta.json"), JSON.stringify({ floor: config.severityFloor, baseRef, head }));
+
   const rules = restoreRulesFromBase(workspace, baseRef, config);
   // Risk hints order the agent's attention; they do not scale its effort. Thoroughness is uniform, the budget is
   // one number, and what is bounded is the work rather than how much any particular line deserves.

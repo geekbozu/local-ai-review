@@ -37,7 +37,10 @@ const DEFAULTS = {
     thinkingFormat: "openai", // how it is spelled: openai | qwen-chat-template | chat-template | none
   },
   // Character cap on a single tool result. A backstop against one whole-file read owning the run, not a reading policy.
-  resultChars: 40000,
+  // Above `read`'s own ceiling (2000 lines / 50 KB), because below it this cut legitimate whole-file reads: the only
+  // truncation in a measured run was DEFERRED.md, a 59 KB ledger, trimmed to 39 KB. At 64k this fires only on `bash`
+  // output — a recursive grep, a whole-file cat — which is what the backstop is for.
+  resultChars: 64000,
   // Wall clock in minutes, 0 = off. Effort is allocated by the turn budget; this is for a genuinely wedged run.
   timeBudgetMinutes: 0,
 };

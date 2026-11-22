@@ -12,8 +12,9 @@
 // The nudge is a *user* message, not a system one: a mid-conversation system message is folded into the leading prompt
 // by the openai-completions adapter, which rewrites every token after it and destroys the prefix cache.
 //
-// It is sent as an explicit steer. A bare sendUserMessage mid-turn throws "Agent is already processing", so every
-// nudge this extension made was an error in the log and nothing else.
+// It is sent as an explicit steer: `deliverAs`, which is the option the extension API takes. `streamingBehavior` is a
+// field on *input events*, and passing it here looks plausible and does nothing — every nudge this extension made threw
+// "Agent is already processing" and steered nothing.
 
 import { appendFileSync } from "node:fs";
 
@@ -49,7 +50,7 @@ export default function (pi) {
       `You are out of budget after ${turn} turns and ${Math.round(minutes)} minutes. Stop exploring now. ` +
         `Call report_finding for anything you have already confirmed and have not yet reported, ` +
         `then reply with a one-paragraph summary of what you checked and what you did not.`,
-      { streamingBehavior: "steer" },
+      { deliverAs: "steer" },
     );
   });
 

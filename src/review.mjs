@@ -420,7 +420,7 @@ export async function run() {
     // codemode lets the agent do several lookups in one turn — grep a name across four files, filter the result,
     // then read the two lines that mattered — instead of a round trip each. On a device that serves one request at a
     // time, turns are the expensive unit.
-    "--tools", "read,bash,edit,write,grep,find,ls,codemode,report_finding",
+    "--tools", "read,bash,edit,write,grep,find,ls,codemode,report_finding,list_findings,update_finding,withdraw_finding",
     // Standing instructions belong in the system prompt, where they are weighted more heavily than a user message.
     // The user message is then only the kickoff, and the change's facts are in the system prompt too.
     "--append-system-prompt", systemPromptFile,

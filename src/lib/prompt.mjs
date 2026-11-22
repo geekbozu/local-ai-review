@@ -27,6 +27,10 @@ The exception is a wrap-up instruction: if you are told your budget is nearly sp
 confirmed rather than finishing the pass — a review that is killed with nothing reported is worth less than an
 incomplete one.
 
+Before you finish, call list_findings and read your own list. The same defect stated twice is one defect: merge the
+restatements with update_finding, withdraw the ones you no longer think are defects, and leave one entry per thing a
+maintainer would act on.
+
 For each defect:
 
 - path: the file, as it appears in the change

@@ -63,7 +63,10 @@ export function resolveQuote(files, path, quote) {
     ...file.context.map((l) => ({ ...l, side: "context" })),
   ];
 
-  const wanted = normalise(quote);
+  // A model quoting two lines is quoting the line it means plus the one under it. Only the first can carry the
+  // anchor, and the uniqueness rules below still refuse to guess. Dropping multi-line quotes instead lost the one
+  // medium finding on the planted-defect run — it was reported, correct, and thrown away at posting.
+  const wanted = normalise(String(quote).split("\n")[0]);
   if (!wanted) return null;
 
   const exact = candidates.filter((c) => normalise(c.text) === wanted);

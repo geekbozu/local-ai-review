@@ -203,7 +203,7 @@ export async function run() {
   const promptFile = env.PROMPT_FILE || join(tmpdir(), `ai-review-prompt-${process.pid}.txt`);
   const transcriptFile = env.TRANSCRIPT_FILE || join(tmpdir(), `ai-review-transcript-${process.pid}.md`);
   writeFileSync(promptFile, prompt);
-  const notesFile = join(tmpdir(), `ai-review-notes-${process.pid}.txt`);
+  const notesFile = env.NOTES_FILE || join(tmpdir(), `ai-review-notes-${process.pid}.txt`);
   const eventsFile = env.EVENTS_FILE || join(tmpdir(), `ai-review-events-${process.pid}.jsonl`);
 
   const args = [

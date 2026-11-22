@@ -16,8 +16,13 @@ const LOCAL = ".leak-audit.local.json";
 const SELF = "tools/leak-audit.mjs"; // this file discusses patterns by design
 
 const patterns = [
-  // Loopback is not a leak: a bound socket has to name something.
-  ["private address", /\b(?:10|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d+\.\d+\.\d+\b|100\.64\.\d+\.\d+/],
+  // Loopback is not a leak: a bound socket has to name something. Each private range names all of its octets — the
+  // first version wrote `192\.168` and then asked for three more groups, so `192.168.68.82` and `172.16.4.9` both
+  // passed and only a four-group address was caught.
+  [
+    "private address",
+    /\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3})\b/,
+  ],
   ["absolute user path", /[A-Za-z]:[\\/](?:Users|home)[\\/][^\s"')]+/],
   ["credential shape", /\b(?:sk-|ghp_|gho_|github_pat_|xox[abp]-)[A-Za-z0-9_-]{10,}/],
   ["private key", /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/],

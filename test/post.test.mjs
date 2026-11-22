@@ -108,12 +108,35 @@ test("the severity floor drops lower severities", () => {
   const { posted, dropped } = buildReview({ findings, diff: DIFF, floor: "critical" });
   assert.equal(posted.length, 1);
   assert.ok(dropped.some((d) => d.reason === "below critical"));
+  // The notes file is the only place a below-floor finding stays readable, so the body has to survive the drop.
+  assert.ok(dropped.every((d) => d.severity === undefined || d.body));
 });
 
 test("an identical finding twice in one review is posted once", () => {
   const { posted, dropped } = buildReview({ findings: [findings[0], findings[0]], diff: DIFF });
   assert.equal(posted.length, 1);
   assert.ok(dropped.some((d) => d.reason.includes("duplicate")));
+});
+
+test("a quote spanning two lines anchors on its first line", () => {
+  const { posted, dropped } = buildReview({
+    findings: [
+      {
+        path: "src/services/scores.ts",
+        quote:
+          "export async function loadAuditionForJudge(supabase: SupabaseClient, judgeId: string) {\n" +
+          "  const { data } = await supabase.from('Auditions').select('*, Events(*)').eq('judge_id', judgeId)",
+        severity: "medium",
+        body: "The model quoted the line it meant plus the one under it, which is what it does.",
+      },
+    ],
+    diff: DIFF,
+  });
+  assert.equal(dropped.length, 0);
+  assert.deepEqual(
+    posted.map((p) => p.line),
+    [24],
+  );
 });
 
 test("markers in existing comments are read back so a re-run can skip them", () => {

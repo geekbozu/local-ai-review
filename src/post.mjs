@@ -2,7 +2,7 @@
 //
 // Run standalone (CI) or imported by review.mjs. The model never supplies a line number; see lib/diff.mjs.
 
-import { readFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { parseDiff, resolveQuote, normalise } from "./lib/diff.mjs";
@@ -52,19 +52,25 @@ export function buildReview({ findings, diff, floor = "low" }) {
       continue;
     }
     if ((SEVERITY[f.severity] ?? 99) > min) {
-      dropped.push({ reason: `below ${floor}`, path: f.path, quote: f.quote });
+      dropped.push({ reason: `below ${floor}`, path: f.path, quote: f.quote, severity: f.severity, body: f.body });
       continue;
     }
 
     const hit = resolveQuote(files, f.path, f.quote);
     if (!hit) {
-      dropped.push({ reason: "cannot anchor to a line in the diff", path: f.path, quote: f.quote });
+      dropped.push({
+        reason: "cannot anchor to a line in the diff",
+        path: f.path,
+        quote: f.quote,
+        severity: f.severity,
+        body: f.body,
+      });
       continue;
     }
 
     const id = marker(f);
     if (seen.has(id)) {
-      dropped.push({ reason: "duplicate within this review", path: f.path, quote: f.quote });
+      dropped.push({ reason: "duplicate within this review", path: f.path, quote: f.quote, severity: f.severity, body: f.body });
       continue;
     }
     seen.add(id);
@@ -161,6 +167,23 @@ async function main() {
   const floor = loadConfig()?.severityFloor || "low";
   const { posted, dropped } = buildReview({ findings: loadFindings(findingsFile), diff, floor });
 
+  // Everything the run found and did not post, with the body a reader would have needed. The summary has room for a
+  // folded list of reasons; this is where a low finding or an unanchorable one stays legible. It travels with the
+  // artifact, which is why the artifact step runs after this one.
+  if (process.env.AI_REVIEW_NOTES && dropped.length) {
+    appendFileSync(
+      process.env.AI_REVIEW_NOTES,
+      dropped
+        .map(
+          (d) =>
+            `[${d.reason}] ${d.severity || "?"} ${d.path || d.raw || "?"}\n` +
+            `  quote: ${String(d.quote ?? "").slice(0, 300)}\n` +
+            `  body: ${d.body || ""}\n`,
+        )
+        .join(""),
+    );
+  }
+
   // With the repository root, so an absolute read path becomes the repo-relative one the diff uses. Without it the
   // gate reported every changed file as unopened while the agent had read all five.
   const coverage = eventsFile ? openedFiles(eventsFile, { root: process.cwd() }) : { opened: new Set(), turns: 0 };
@@ -189,7 +212,6 @@ async function main() {
   };
   console.log(JSON.stringify(report));
   if (process.env.GITHUB_STEP_SUMMARY) {
-    const { appendFileSync } = await import("node:fs");
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${body}\n\n\`\`\`json\n${JSON.stringify(report, null, 2)}\n\`\`\`\n`);
   }
 }

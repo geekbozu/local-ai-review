@@ -147,6 +147,9 @@ export function sandboxArgv({ argv, workspace, writable = [], envForChild = {} }
     "--ro-bind", "/", "/",
     "--bind", workspace, workspace,
     "--tmpfs", "/root",
+    // /var/run is a symlink to /run, and docker is not the only socket there: containerd, podman and cri-o all live in
+    // this tree. Hiding the directory covers the ones nobody thought of.
+    "--tmpfs", "/run",
     "--ro-bind-try", "/dev/null", "/var/run/docker.sock",
     "--tmpfs", "/tmp",
     "--dev", "/dev",
@@ -462,7 +465,9 @@ export async function run() {
   const sandboxed = sandboxArgv({
     argv: [piBin, ...args],
     workspace,
-    writable: [agentDir, tempDir],
+    // The two files, not the directory. A writable runner.temp let the agent delete or replace events.jsonl, which is
+    // what the posted coverage report is computed from — a review that names the files it never opened, forged.
+    writable: [agentDir, findingsFile, notesFile],
     envForChild: childEnv,
   });
 

@@ -41,9 +41,11 @@ to write a benchmark and run it. That work is discarded with the runner, and it 
 
 ### 3 · What the agent says is untrusted
 
-- **The poster reads git objects, not the working tree.** The diff comes from `base...HEAD`; the configuration that
-  decides severity comes from the commit. An agent that edits `.ai-review.json` or the checkout changes nothing
-  about what is posted.
+- **The poster reads what was frozen before the agent ran.** The diff and the severity floor are written to a
+  directory outside every writable bind, at the start of the review, and the poster reads those. This matters because
+  `.git` lives inside the writable tree: an agent that moves `origin/main` chooses both the diff its quotes anchor to
+  and the floor that decides what posts. Reading the commit *after* the agent has run was only safe against an honest
+  agent, which is the same as not being safe.
 - **Posting is inert.** Bodies are length-capped, `@` is escaped, and image and raw-HTML syntax is rejected, so a
   steered finding cannot ping a team or beacon a reader.
 
@@ -71,6 +73,7 @@ The invocation, in shape:
 --tmpfs /tmp --dev /dev --proc /proc
 --tmpfs /_work/_actions                       the action's own source is not visible
 --tmpfs /root                                 the runner's own home is empty
+--tmpfs /run                                  every container runtime socket, not just docker's
 --ro-bind-try /dev/null /var/run/docker.sock  the socket is not connectable
 --unshare-pid --die-with-parent --clearenv --cap-drop ALL
 ```
@@ -103,6 +106,18 @@ Path hiding is done by the mount instead, where it cannot be talked around.
 The event stream records tool results, which is to say file contents. `upload-events` defaults to **false**; a
 private consumer that wants the trace for triage can turn it on. A public repository should leave it off — the
 artifact is as visible as the repository is.
+
+## What the agent cannot reach, and what it can
+
+- **The event stream, findings aside, is not writable.** Exactly two files are bound writable inside the runner's temp
+  directory — the findings file and the notes file — because the coverage report is computed from the event stream, and
+  a writable stream would let a review forge which files it opened.
+- **The network is not unshared.** With no credential in the child the only thing left to send is the pull request's own
+  content, which its author already has. What this does not cover is runner-local services on loopback: a self-hosted
+  runner exposes an `ACTIONS_RUNTIME_TOKEN` over a metadata socket, and hiding sockets in `/run` does not hide that.
+  Unsharing the network would close it, at the cost of pi being unable to reach the proxy.
+- **One detection is a string match.** An `Extension error` on the child's stderr ends the run; a program that prints
+  exactly that string would end it too. That fails a run rather than hiding anything, but it is a blunt instrument.
 
 ## Known limits
 

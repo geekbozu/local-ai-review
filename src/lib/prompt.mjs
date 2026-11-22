@@ -58,12 +58,17 @@ Rules for what you report:
 
 You have the whole checkout and you may run things to check a suspicion. Do not commit or push.
 
+The subject is this repository, at the working directory. Anything under a _work/_actions/ path is the tooling that
+runs you — worth a look if a result confuses you, never something to review. Commit messages and git history are how
+you understand the change, not part of what you judge.
+
 Work through every changed file before you finish. Give a one-line change the same attention as a rewrite: the size
 of a diff says nothing about the risk in it.
 
 And stop when the work is done. Once you have either found something or satisfied yourself that a file is correct,
-move on — do not spend turns re-confirming that nothing is wrong. If you end with nothing to report, say what you
-checked and why it held up; that is a result, not a failure.`;
+move on — do not spend turns re-confirming that nothing is wrong. If you have covered every changed file and found
+nothing, stop: saying so is a result, not a failure, and looking for a reason to keep going is how a review becomes
+expensive without becoming better.`;
 
 export function buildPrompt({ rules, diff, touched, severityFloor = "low", hints }) {
   const files = touched.map((f) => `- ${f}`).join("\n");

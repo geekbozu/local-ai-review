@@ -5,9 +5,9 @@
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
-import { writeFileSync, mkdirSync, readFileSync, existsSync, cpSync } from "node:fs";
+import { writeFileSync, mkdirSync, readFileSync, existsSync, cpSync, accessSync, constants } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
+import { join, dirname, delimiter } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadConfig } from "./lib/config.mjs";
 import { normaliseBaseUrl } from "./lib/url.mjs";
@@ -86,6 +86,23 @@ export function watch({ onFinding, onTurn }) {
 // Everything below is what the OS enforces. The previous design read `bash` command strings and decided what was
 // allowed; a relative path defeated it in one attempt, and no amount of pattern-writing wins that game. A mount
 // cannot be argued with.
+
+// The sandbox does not inherit the job's PATH, and pi lives wherever npm put it — often a prefix that is on the job's
+// PATH and nowhere else. Resolving to an absolute path is what makes the same command work inside and outside.
+export function resolveExecutable(name, path = process.env.PATH || "") {
+  if (name.includes("/")) return name;
+  for (const dir of path.split(delimiter)) {
+    if (!dir) continue;
+    const candidate = join(dir, name);
+    try {
+      accessSync(candidate, constants.X_OK);
+      return candidate;
+    } catch {
+      // keep looking
+    }
+  }
+  return name;
+}
 
 export function bwrapAvailable() {
   try {
@@ -367,10 +384,11 @@ export async function run() {
   const trace = openTrace(eventsFile);
   const workspace = process.cwd();
   const tempDir = dirname(findingsFile);
+  const piBin = resolveExecutable(env.PI_BIN || "pi");
   // The whole environment the child gets. `--clearenv` means this list is all there is: no PATH from the runner, no
   // key, no token, nothing inherited by accident.
   const childEnv = {
-    PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    PATH: [dirname(piBin), "/usr/local/sbin", "/usr/local/bin", "/usr/bin", "/bin"].join(delimiter),
     HOME: agentDir,
     TMPDIR: agentDir,
     PI_CODING_AGENT_DIR: agentDir,
@@ -383,7 +401,7 @@ export async function run() {
     [apiKeyEnv]: proxy.token,
   };
   const sandboxed = sandboxArgv({
-    argv: [env.PI_BIN || "pi", ...args],
+    argv: [piBin, ...args],
     workspace,
     writable: [agentDir, tempDir],
     envForChild: childEnv,

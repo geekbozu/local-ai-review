@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { watch } from "../src/review.mjs";
+import { dirname } from "node:path";
+import { watch, resolveExecutable } from "../src/review.mjs";
 
 // The line this produces is the only per-run record that survives a rerun — artifacts are replaced by the next
 // attempt — so it has to say which finding was found. It said `undefined undefined` twice: first because the
@@ -33,4 +34,14 @@ test("a failed report_finding is not counted", () => {
   w(JSON.stringify({ type: "tool_execution_start", toolCallId: "k", toolName: "report_finding", args: { path: "p" } }) + "\n");
   w(JSON.stringify({ type: "tool_execution_end", toolCallId: "k", toolName: "report_finding", isError: true }) + "\n");
   assert.equal(seen.length, 0);
+});
+
+// The sandbox sets its own PATH, so a bare "pi" is found by the parent and not by the child. Resolved to an absolute
+// path, the same command works in both. Measured on a board as "bwrap: execvp pi: No such file or directory".
+test("an executable is resolved against the path it is given", () => {
+  const looksAbsolute = resolveExecutable("pi", "/nowhere");
+  assert.equal(looksAbsolute, "pi", "nothing on that path, so the name is returned unchanged");
+
+  const found = resolveExecutable(process.execPath.split(/[\/]/).pop(), dirname(process.execPath));
+  assert.equal(found, process.execPath, "the first directory carrying an executable wins");
 });

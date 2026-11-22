@@ -19,6 +19,9 @@ const DEFAULTS = {
   // file and not a risk pattern: what is out of scope here, what it should ignore, how this codebase works.
   instructions: [],
   severityFloor: "low", // low | medium | high | critical
+  // How certain the agent must be before a finding is posted. Its own rating, against the bands the prompt defines, so
+  // this is a threshold on a number rather than another sentence to obey.
+  confidenceFloor: 7, // 0-10
   maxTurns: 60, // a runaway stop, not a tuning knob: high enough to be obviously too high
   thinking: "low", // off | minimal | low | medium | high
   model: null, // null = the action input decides
@@ -122,6 +125,9 @@ function validate(raw, path) {
     if (!Number.isInteger(config[key]) || config[key] < 0) {
       throw new Error(`${CONFIG_FILE}: ${key} must be a non-negative integer`);
     }
+  }
+  if (!Number.isInteger(config.confidenceFloor) || config.confidenceFloor < 0 || config.confidenceFloor > 10) {
+    throw new Error(`${CONFIG_FILE}: confidenceFloor must be an integer from 0 to 10`);
   }
   if (!["low", "medium", "high", "critical"].includes(config.severityFloor)) {
     throw new Error(`${CONFIG_FILE}: severityFloor must be low, medium, high or critical`);

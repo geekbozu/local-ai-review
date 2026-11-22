@@ -360,7 +360,13 @@ export async function run() {
   writeFileSync(join(frozenDir, "diff.txt"), diff);
   writeFileSync(
     join(frozenDir, "meta.json"),
-    JSON.stringify({ floor: config.severityFloor, ignore: config.ignore, baseRef, head }),
+    JSON.stringify({
+      floor: config.severityFloor,
+      confidenceFloor: config.confidenceFloor,
+      ignore: config.ignore,
+      baseRef,
+      head,
+    }),
   );
 
   const rules = restoreRulesFromBase(workspace, baseRef, config);

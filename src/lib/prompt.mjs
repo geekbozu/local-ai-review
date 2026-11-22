@@ -50,6 +50,10 @@ For each defect:
 - path: the file, as it appears in the change
 - quote: the exact text of the line, copied character for character — a paraphrase cannot be placed and is dropped
 - severity: critical | high | medium | low; nothing below ${severityFloor} is posted, so do not pad
+- confidence: 0-10, how sure you are that this is a real defect. 9-10 you traced it in the code in front of you and can
+  name what triggers it; 7-8 very likely, resting on something you can see; 5-6 plausible but unconfirmed; below that is
+  a hunch. Only 7 and above is posted — a low number is not a failure, it is the difference between a review and a
+  rumour, and reporting a confident-sounding guess costs more than staying quiet
 - the fewest findings that carry the review beat a long list: a maintainer acts on what is worth acting on, and five
   observations of one problem read as one observation and four restatements
 - body: one or two sentences naming the defect and what it costs

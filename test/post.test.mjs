@@ -287,3 +287,14 @@ test("a hand-written finding cannot smuggle markdown through the dropped line", 
   assert.ok(!text.includes("evil.example"), "no image survives");
   assert.ok(text.length < 2000, "and the head line is capped, so it cannot fail the POST");
 });
+
+// A finding the agent was not confident in used to arrive indistinguishable from one it was sure of.
+test("a finding below the confidence floor is folded, not posted", () => {
+  const sure = { ...findings[0], confidence: 9 };
+  const shaky = { ...findings[0], body: "another concern", confidence: 4 };
+  const { posted, dropped } = buildReview({ findings: [sure, shaky], diff: DIFF });
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].severity, "critical");
+  assert.ok(dropped.some((d) => d.reason === "below confidence 7"));
+  assert.ok(dropped.some((d) => d.confidence === 4), "the folded entry keeps the number, so the reader can see why");
+});

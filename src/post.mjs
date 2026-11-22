@@ -74,7 +74,7 @@ export const sanitise = (body) =>
     .replace(/@/g, "\\@")
     .slice(0, MAX_BODY);
 
-export function buildReview({ findings, diff, floor = "low", ignore = [] }) {
+export function buildReview({ findings, diff, floor = "low", ignore = [], confidenceFloor = 7 }) {
   const files = parseDiff(diff);
   const min = SEVERITY[floor] ?? 3;
 
@@ -95,6 +95,19 @@ export function buildReview({ findings, diff, floor = "low", ignore = [] }) {
     }
     if (!(f.path && f.quote && f.body && f.severity)) {
       dropped.push({ reason: "missing field", path: f.path, quote: f.quote });
+      continue;
+    }
+    // A finding the agent is not confident in is not a finding to act on, and it used to arrive indistinguishable from
+    // one it was sure of. Missing is treated as confident, so a hand-written line or an older run still posts.
+    if (Number.isInteger(f.confidence) && f.confidence < confidenceFloor) {
+      dropped.push({
+        reason: `below confidence ${confidenceFloor}`,
+        path: f.path,
+        quote: f.quote,
+        severity: f.severity,
+        body: f.body,
+        confidence: f.confidence,
+      });
       continue;
     }
     if ((SEVERITY[f.severity] ?? 99) > min) {
@@ -261,7 +274,13 @@ async function main() {
   // raise is a review that can silence itself. Base ref, matching the rules, so a PR cannot rewrite the config that
   // decides how its own findings are graded.
   const floor = frozen ? frozen.floor : (loadConfigFromRef(base, ws) || loadConfig())?.severityFloor || "low";
-  const { posted, dropped } = buildReview({ findings: loadFindings(findingsFile), diff, floor, ignore: frozen?.ignore || [] });
+  const { posted, dropped } = buildReview({
+    findings: loadFindings(findingsFile),
+    diff,
+    floor,
+    ignore: frozen?.ignore || [],
+    confidenceFloor: frozen?.confidenceFloor ?? 7,
+  });
 
   // Everything the run found and did not post, with the body a reader would have needed. The summary has room for a
   // folded list of reasons; this is where a low finding or an unanchorable one stays legible. It travels with the

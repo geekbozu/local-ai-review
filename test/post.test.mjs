@@ -148,6 +148,19 @@ test("markers in existing comments are read back so a re-run can skip them", () 
   assert.equal(existingMarkers([{ body: "unrelated comment" }]).size, 0);
 });
 
+test("the same defect reworded is the same finding, and a re-rating is not", () => {
+  const original = buildReview({ findings: [findings[0]], diff: DIFF }).posted[0];
+  const reworded = buildReview({
+    findings: [{ ...findings[0], body: "The same defect, in different words." }],
+    diff: DIFF,
+  }).posted[0];
+  assert.equal(original.marker, reworded.marker);
+
+  // A re-rating can take a finding across the floor, so it is a different finding: it has to post.
+  const rerated = buildReview({ findings: [{ ...findings[0], severity: "medium" }], diff: DIFF }).posted[0];
+  assert.notEqual(original.marker, rerated.marker);
+});
+
 test("the summary names uncovered files and counts dropped findings", () => {
   const { posted, dropped } = buildReview({ findings, diff: DIFF });
   const text = summarise({ posted, dropped, uncovered: ["src/services/scores.test.ts"], turns: 12 });
@@ -155,6 +168,8 @@ test("the summary names uncovered files and counts dropped findings", () => {
   assert.match(text, /Not reviewed:.*scores\.test\.ts/);
   assert.match(text, /3 findings not posted/);
   assert.match(text, /12 turns/);
+  // Severity is the model's own, and it is not stable across runs: a low has to be legible without the artifact.
+  assert.match(text, /- \*\*low\*\* cannot anchor to a line in the diff — `src\/services\/scores\.ts`\n  ambiguous/);
 });
 
 test("a CRLF diff parses the same as an LF one", () => {

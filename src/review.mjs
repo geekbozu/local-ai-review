@@ -246,8 +246,6 @@ export async function run(options = {}) {
     return { dryRun: true };
   }
 
-  // `AI_REVIEW_NO_SANDBOX` exists for the tuning harness and for tests with a stand-in client; the action never sets it.
-  const useSandbox = !env.AI_REVIEW_NO_SANDBOX;
   const sandboxArgs = sandboxArgv({
     argv: [piBin, ...args],
     workspace,

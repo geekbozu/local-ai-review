@@ -138,6 +138,40 @@ missed, within eleven seconds. So:
 The chosen row is 0.6 with no penalties, because it reports four things of which three are true. It is not more
 consistent — both are — and it is not faster. It is simply the one whose output a person would accept.
 
+## The screen: five models, one fixture
+
+Every row below is the same pinned fixture — five planted defects, one critical, two high, one medium, one low — with two
+runs at each setting, on the same device, through the same container. `found` is how many of the five it reported.
+
+| model | row | found | reports kept | avg wall |
+|---|---|---|---|---|
+| **Qwen3-Coder-Next** (80B, 3B active) | 0.6 / 0.95 / 20 | **3/5 · 3/5** | **4** | **163 s** |
+| Qwen3-Coder-Next | device defaults (= 0.6 / 0.95 / 20) | 3/5 · 1/5 | 3.5 | 180 s |
+| GLM-4.7-Flash (31B) | card agentic 0.7 / 1.0 | 1/5 · 3/5 | 3 | 254 s |
+| GLM-4.7-Flash | same, `enable_thinking: false` | 2/5 · 1/5 | 3 | 332 s |
+| Qwen3.6-35B-A3B | card 0.7 / 0.8 | 2/5 · 1/5 | 2.5 | 157 s |
+| Qwen3.6-35B-A3B | device defaults | 0/5 · 1/5 | 1 | 287 s |
+| Ornith-1.5-35B-A3B | device defaults | 1/5 · 1/5 | 1.5 | 585 s |
+| Ornith-1.5-35B-A3B | same, `enable_thinking: false` | 2/5 · 1/5 | 2.5 | 595 s |
+| gemma-4-26B-A4B-it | any | 0/5 | 0 | broken |
+
+Four things this settles:
+
+- **Only one model reviews.** The 80B is the sole configuration that has found three of five, and it did so eight times
+  across two harness versions. Everything else tops out at two, once.
+- **Nothing is fully reproducible.** The 80B's own device-default row gave 3/5 and then 1/5 — one divergence in seven
+  runs, expressed as churn (8 reports, 2 withdrawals) rather than as a model that answered wrongly. The typical result is
+  the one to quote; a single run is not.
+- **The box's defaults are the right row for the 80B** — they *are* the 0.6 / 0.95 / 20 row this page once presented as a
+  discovery, so that "tuning" changed the config not at all. Where device and card disagree (gemma's top_k 64, GLM's
+  agentic 0.7 / 1.0) the disagreement is worth a run, not an assumption.
+- **gemma cannot be used here at all.** Its stream is truncated at the first special token — the model answers `<termed`
+  and stops — which is a chat-template/parser mismatch on the serving side, not something a request can fix.
+
+The two defects *every* model missed are the unescaped interpolation into HTML (medium) and the stale comment above a
+changed value (low). Stable across models, samplers and thinking modes: the reviewer reads the critical and high defects
+and declines the marginal ones, whoever it is.
+
 ## The pile
 
 Models queued for the sweep, and where each one stands:

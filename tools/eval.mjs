@@ -8,7 +8,8 @@
 //   node tools/eval.mjs --repo ../HonorAuditions --base origin/main \
 //     --settings tools/eval/samplers.json --runs 2 --out out/eval.jsonl
 //
-// `samplers.json` is an array of { "name": "…", "modelSettings": { … } }, applied through AI_REVIEW_SETTINGS_JSON.
+// `samplers.json` is an array of { "name": "…", "config": { … } }: a whole .ai-review.json per combo, written into
+// the fixture the harness just built. No environment override exists in the action, and none is needed here.
 // Requires a reachable endpoint: AI_REVIEW_BASE_URL and AI_REVIEW_API_KEY in the environment, and Docker.
 
 import { execFileSync } from "node:child_process";
@@ -24,13 +25,17 @@ const arg = (name, fallback = null) => {
 };
 
 const fixture = arg("fixture", null);
-const repo = fixture ? null : resolve(arg("repo", process.cwd()));
+
 const base = arg("base", "origin/main");
 const settingsFile = arg("settings");
 const runs = Number(arg("runs", "1"));
 const out = resolve(arg("out", "out/eval.jsonl"));
 const image = arg("image", "ai-review-eval");
 
+if (!fixture) {
+  console.error("--fixture <name> is required: a real repository's diff moves between sweeps and cannot be compared");
+  process.exit(2);
+}
 if (!settingsFile) {
   console.error("--settings <file.json> is required: an array of { name, modelSettings }");
   process.exit(2);
@@ -161,7 +166,11 @@ for (let run = 1; run <= runs; run += 1) {
   for (const combo of combos) {
     // Per run, so a run cannot be polluted by the previous one's working tree.
     const built = fixture ? buildFixture(fixture) : null;
-    const target = built ? built.work : repo;
+    const target = built.work;
+    writeFileSync(
+      join(target, ".ai-review.json"),
+      JSON.stringify({ rules: [], severityFloor: "low", maxTurns: combo.maxTurns || 20, ...combo.config }, null, 2),
+    );
     const started = Date.now();
     let failure = null;
     try { execFileSync(
@@ -180,7 +189,6 @@ for (let run = 1; run <= runs; run += 1) {
         "-w", "/work",
         "-e", `AI_REVIEW_BASE_URL=${process.env.AI_REVIEW_BASE_URL}`,
         "-e", `AI_REVIEW_API_KEY=${process.env.AI_REVIEW_API_KEY}`,
-        "-e", `AI_REVIEW_SETTINGS_JSON=${JSON.stringify(combo.modelSettings || {})}`,
         "-e", `BASE_REF=${base}`,
         "-e", "GITHUB_WORKSPACE=/work",
         "-e", "RUNNER_TEMP=/work/.eval",

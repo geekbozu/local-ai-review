@@ -109,11 +109,6 @@ function validate(raw, path) {
   };
   if (config.enabled === false) return null;
 
-  // Sampler sweeps need to vary `modelSettings` without editing the repository's own config. Dev-only: the action never
-  // sets this, and whatever it contains goes through the same validation as the file.
-  if (process.env.AI_REVIEW_SETTINGS_JSON) {
-    Object.assign(config.modelSettings, JSON.parse(process.env.AI_REVIEW_SETTINGS_JSON));
-  }
 
   if (!Array.isArray(config.rules)) throw new Error(`${CONFIG_FILE}: rules must be an array of paths or globs`);
   if (!Array.isArray(config.ignore)) throw new Error(`${CONFIG_FILE}: ignore must be an array of paths or globs`);

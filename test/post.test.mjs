@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseDiff, resolveQuote, touchedPaths } from "../src/lib/diff.mjs";
-import { buildReview, existingMarkers, summarise } from "../src/post.mjs";
+import { buildReview, existingMarkers, summarise } from "../src/lib/posting.mjs";
 
 const DIFF = `diff --git a/src/services/scores.ts b/src/services/scores.ts
 index 1111111..2222222 100644

@@ -57,8 +57,13 @@ that holds the credential.**
 
 ```
 action.yml                opt-in → configured → sandbox → review → render → post → artifacts
-src/review.mjs            config, base-ref rules, prompt, sandbox, agent run, frozen policy
-src/post.mjs              findings → confidence and severity floors → quoted anchoring → one review
+src/review.mjs            the review workflow: gates, diff, frozen policy, steps below, report
+src/post.mjs              the posting workflow: frozen policy, findings, identity, one review
+src/steps/sandbox.mjs     bwrap availability and argv
+src/steps/proxy.mjs       the loopback proxy holding the endpoint key
+src/steps/agent-dir.mjs   the per-job client directory
+src/steps/agent-run.mjs   spawn, the event watcher, signal handling
+src/lib/posting.mjs       what is postable: floors, anchoring, sanitising, markers
 src/lib/config.mjs        .ai-review.json: defaults, validation, globs
 src/lib/prompt.mjs        prompt assembly — the facts and the policy
 src/lib/rules.mjs         rule files, restored from the base ref

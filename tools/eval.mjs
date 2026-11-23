@@ -180,9 +180,14 @@ for (const combo of combos) {
     // Per run, so a run cannot be polluted by the previous one's working tree.
     const built = fixture ? buildFixture(fixture) : null;
     const target = built.work;
+    // "deviceDefaults": true means "whatever this box runs when nobody configures it" — the row worth measuring first,
+    // and one that cannot be transcribed wrong because it is read from the device.
+    const settings = combo.config.deviceDefaults
+      ? { ...combo.config, modelSettings: { ...(await box.defaults()), ...(combo.config.modelSettings || {}) }, deviceDefaults: undefined }
+      : combo.config;
     writeFileSync(
       join(target, ".ai-review.json"),
-      JSON.stringify({ rules: [], severityFloor: "low", maxTurns: combo.maxTurns || 20, ...combo.config }, null, 2),
+      JSON.stringify({ rules: [], severityFloor: "low", maxTurns: combo.maxTurns || 20, ...settings }, null, 2),
     );
     const started = Date.now();
     let failure = null;

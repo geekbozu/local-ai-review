@@ -20,8 +20,30 @@ const tiiny = (baseUrl, key) => {
     return (await res.json()).running || [];
   };
 
+  // The device's own sampler defaults for whatever is loaded: the row worth testing first, because it is what anyone
+  // running this box gets when they do not configure anything. Read from the model's own port, which needs no auth.
+  const defaults = async () => {
+    const res = await fetch(`${base}/api/v1/models/running`, { headers });
+    if (!res.ok) return null;
+    const instance = ((await res.json()).instances?.running || [])[0];
+    if (!instance) return null;
+    const props = await fetch(`http://${new URL(base).hostname}:${instance.port}/props`);
+    if (!props.ok) return null;
+    const p = (await props.json()).default_generation_settings?.params;
+    if (!p) return null;
+    return {
+      temperature: p.temperature,
+      topP: p.top_p,
+      topK: p.top_k,
+      minP: p.min_p,
+      presencePenalty: p.presence_penalty,
+      repeatPenalty: p.repeat_penalty,
+    };
+  };
+
   return {
     name: "tiiny",
+    defaults,
     async ensure(model) {
       if ((await running()).includes(model)) return;
       console.log(`  loading ${model} …`);
@@ -40,7 +62,8 @@ const tiiny = (baseUrl, key) => {
   };
 };
 
-const none = { name: "none", async ensure() {} };
+// An endpoint that serves its models has no "resident" concept and no defaults to read: nothing to do, nothing to ask.
+const none = { name: "none", async ensure() {}, async defaults() { return null; } };
 
 export const devices = { none, tiiny };
 

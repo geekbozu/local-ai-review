@@ -79,19 +79,36 @@ Notes that matter more than the numbers:
   which is a server flag, not a request field. If findings start arriving malformed, suspect DRY first.
 - `repeat_penalty: 1.0` is a no-op — the probability is divided by it. Presence and frequency penalties are the levers.
 
-### `Qwen/Qwen3.8-27B` — the best model on the device, and the slowest
+### `Qwen/Qwen3.8-27B` — the best model on this device, and the one to revisit
 
-Dense 27B, 262k context, Q8_0, **thinking with per-request effort** (`supports_reasoning_effort: true`, template has
-`enable_thinking`, levels `low` / `medium` / `xhigh`, default `low`). ~9 tok/s, so roughly half the speed of the 3B-active
-MoE for far better judgement.
+Dense 27B, 262k context, thinking with per-request effort (`supports_reasoning_effort: true`, template has
+`enable_thinking`, levels `low` / `medium` / `xhigh`). The strongest model here and the slowest.
 
-Settings being tested: `thinking: low`, `reasoning: true`, `thinkingFormat: qwen-chat-template`, `contextWindow 262144`,
-`maxTokens 8192` (thinking counts against the ceiling), `contextBudget 64000` (its 128k prefill is ~10 minutes here),
-samplers at the device defaults (temp 1.0, top_p 0.95, top_k 20, no penalties).
+Measured on this device, on a **warm** model:
 
-The hypothesis: an instruct model with no capacity for judgement about its own work is the wrong tool for a task that
-requires deciding when to stop, and a thinking model fixes the wishy-washiness that dominated the 80B. Not yet
-concluded.
+| | measured | Tiiny's published report |
+|---|---|---|
+| decode | **~13 tok/s** | 26.3 tok/s (INT4 build) |
+| prefill | **~150 tok/s** | 390 tok/s |
+| 120-token request | ~13 s | — |
+
+Both roughly half of the published figures, which is what the quantisation difference would explain: their report
+specifies **INT4**, and the file here is named `model.q8_0.gguf`. So the first thing to check before blaming the model
+for its speed is which build is installed.
+
+Two measurement traps, both hit on the way to those numbers:
+
+- **The first request after a load is cold.** A probe immediately after `launch` reported 15 tok/s prefill; the same
+  probe warm reported 152. Measure warm or you measure the load.
+- **Do not divide tokens by wall time.** That produced "9 tok/s" for this model, which included prefill *and* thinking
+  tokens and was wrong by half. Use `timings` from the response, or `/slots` while a request is in flight.
+
+Set `maxTokens` from the speed: at 13 tok/s an 8192-token ceiling is a ten-minute turn, and thinking counts against it.
+`n_ctx` is fixed at 262144 by the firmware — the `n_ctx` field on `launch` is ignored — so a long prompt on this box
+costs minutes of prefill and cannot be avoided by asking for a smaller context.
+
+Not adopted yet: it needs a cheaper build (INT4) or a much shorter review to be worth a 20-minute run, and the 80B
+answers in four.
 
 ## What the guards had to do, because no model did it
 

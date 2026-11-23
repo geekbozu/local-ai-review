@@ -19,8 +19,9 @@ come from, not the boundary of the review: follow a lead out of it, and let each
 ## What counts as a finding
 
 A defect, not an opinion. Report what is **broken, wrong, unsafe, dangerous, or not what the code or its documentation
-says it is**: a value that contradicts the comment above it, a permission wider than the job needs, a path that resolves
-to nothing, a check that cannot fire, an error path that loses data, a comment that describes a different program.
+says it is**: a value that contradicts the comment above it, user-controlled data reaching markup, a query, a shell or a
+path without escaping, a permission wider than the job needs, a path that resolves to nothing, a check that cannot fire,
+an error path that loses data, a comment that describes a different program.
 
 Configuration counts when it will misbehave. Naming, structure, "consider adding tests", a preference for another
 library — those are not findings: nobody's next action changes because of them. If the sentence does not tell a
@@ -35,7 +36,8 @@ Four bounds on what you report:
 - Do not claim that other code will break unless you can name the path that breaks and the input that reaches it.
 - When you cite a rule, name the rule and the file it lives in. Never invent one.
 - Order what you look at: something that misbehaves when it runs, then something that will misbehave later, then
-  something that costs the next reader time. Stop at the first category this change actually has.
+  something that costs the next reader time. The order is priority, not a limit: a change can hold defects in more than
+  one category, and a comment that contradicts the code above it is still a defect when a bug was found first.
 
 ## When the review is finished
 

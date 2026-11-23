@@ -1,99 +1,99 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { run } from "../src/review.mjs";
 
-// The workflow's wiring, exercised for real: config, diff, rules, prompt, frozen policy, agent directory — everything
-// up to the model call. Written after a refactor dropped an import that no test touched, so a 20-second review failed
-// with `ReferenceError: mkdirSync is not defined` on a board instead of here.
+// The workflow's wiring, exercised for real. Written after a refactor dropped imports that no test touched: a
+// twenty-second review failed on a board with `ReferenceError: mkdirSync is not defined` while 58 tests passed, because
+// nothing executed `run()`.
+//
+// Everything here goes through `run(options)`. Env is used for *paths* only — there is deliberately no environment
+// variable that can switch the sandbox off or swap the client, because such a flag is a flag that eventually gets set.
+
+const NL = String.fromCharCode(10);
+
 const tempRepo = () => {
-  const repo = mkdtempSync(join(tmpdir(), "ai-review-dry-"));
-  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: repo });
-  execFileSync("git", ["config", "user.email", "t@example.com"], { cwd: repo });
-  execFileSync("git", ["config", "user.name", "t"], { cwd: repo });
+  const repo = mkdtempSync(join(tmpdir(), "ai-review-"));
+  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { stdio: "ignore" });
+  git("init", "-q", "-b", "main");
+  git("config", "user.email", "t@example.com");
+  git("config", "user.name", "t");
   writeFileSync(join(repo, ".ai-review.json"), JSON.stringify({ rules: [], model: "test/model" }));
-  writeFileSync(join(repo, "a.txt"), "one" + String.fromCharCode(10));
-  execFileSync("git", ["add", "-A"], { cwd: repo });
-  execFileSync("git", ["commit", "-qm", "base"], { cwd: repo });
-  execFileSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD"], { cwd: repo });
-  writeFileSync(join(repo, "changed.txt"), "two" + String.fromCharCode(10));
-  execFileSync("git", ["add", "-A"], { cwd: repo });
-  execFileSync("git", ["commit", "-qm", "change"], { cwd: repo });
+  writeFileSync(join(repo, "a.txt"), "one" + NL);
+  git("add", "-A");
+  git("commit", "-qm", "base");
+  git("update-ref", "refs/remotes/origin/main", "HEAD");
+  writeFileSync(join(repo, "changed.txt"), "two" + NL);
+  git("add", "-A");
+  git("commit", "-qm", "change");
   return repo;
 };
 
-const envFor = (repo, extra = {}) => ({
-  ...process.env,
-  AI_REVIEW_BASE_URL: "http://127.0.0.1:9/v1",
-  AI_REVIEW_API_KEY: "test",
-  PI_CODING_AGENT_DIR: join(repo, ".pi-cache"),
-  RUNNER_TEMP: repo,
-  GITHUB_WORKSPACE: repo,
-  BASE_REF: "origin/main",
-  ...extra,
+// Paths come from the environment in production; here they point at a temporary repository, and are restored afterwards.
+const withRepo = async (repo, fn) => {
+  const keys = [
+    "GITHUB_WORKSPACE",
+    "RUNNER_TEMP",
+    "BASE_REF",
+    "FINDINGS_FILE",
+    "EVENTS_FILE",
+    "NOTES_FILE",
+    "PROMPT_FILE",
+    "TRANSCRIPT_FILE",
+    "PI_CODING_AGENT_DIR",
+    "AI_REVIEW_BASE_URL",
+    "AI_REVIEW_API_KEY",
+  ];
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  const cwd = process.cwd();
+  Object.assign(process.env, {
+    GITHUB_WORKSPACE: repo,
+    RUNNER_TEMP: repo,
+    BASE_REF: "origin/main",
+    FINDINGS_FILE: join(repo, "findings.jsonl"),
+    EVENTS_FILE: join(repo, "events.jsonl"),
+    NOTES_FILE: join(repo, "notes.txt"),
+    PROMPT_FILE: join(repo, "prompt.txt"),
+    TRANSCRIPT_FILE: join(repo, "transcript.md"),
+    PI_CODING_AGENT_DIR: join(repo, ".pi-cache"),
+    AI_REVIEW_BASE_URL: "http://127.0.0.1:9/v1",
+    AI_REVIEW_API_KEY: "test",
+  });
+  process.chdir(repo);
+  try {
+    return await fn();
+  } finally {
+    process.chdir(cwd);
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+};
+
+test("the review workflow wires up end to end", async () => {
+  const repo = tempRepo();
+  const result = await withRepo(repo, () => run({ dry: true }));
+
+  assert.equal(result.dryRun, true, "the workflow reached the point before the model call");
+  assert.ok(existsSync(join(repo, "ai-review-frozen", "meta.json")), "the frozen policy the poster reads was written");
 });
 
-// The half the dry run cannot reach: the spawn, the event stream, the findings file, the report. Three import bugs
-// reached a board tonight because nothing executed this path.
-test("a whole review runs against a stand-in client", () => {
+// The half a dry run cannot reach: the spawn, the event stream, the findings file, the report. Three import bugs and a
+// dangling reference reached a board tonight because nothing executed this path.
+test("a whole review runs against a stand-in client", async () => {
   const repo = tempRepo();
-  const out = execFileSync(process.execPath, [join(import.meta.dirname, "..", "src", "review.mjs")], {
-    cwd: repo,
-    encoding: "utf8",
-    env: envFor(repo, {
-      AI_REVIEW_NO_SANDBOX: "1",
-      PI_BIN: JSON.stringify([process.execPath, join(import.meta.dirname, "fixtures", "fake-pi.mjs")]),
-      FINDINGS_FILE: join(repo, "findings.jsonl"),
-      EVENTS_FILE: join(repo, "events.jsonl"),
-      NOTES_FILE: join(repo, "notes.txt"),
-      PROMPT_FILE: join(repo, "prompt.txt"),
-      TRANSCRIPT_FILE: join(repo, "transcript.md"),
-      PATH: process.env.PATH,
+  const result = await withRepo(repo, () =>
+    run({
+      sandbox: false,
+      clientArgv: [process.execPath, join(import.meta.dirname, "fixtures", "fake-pi.mjs")],
     }),
-  });
+  );
 
-  const result = JSON.parse(out.trim().split(String.fromCharCode(10)).pop());
   assert.equal(result.findings, 1, "the finding the client reported reached the summary");
   assert.equal(result.touched, 1, "the diff was read");
   assert.ok(existsSync(join(repo, "transcript.md")), "a transcript was rendered");
-});
-
-test("the review workflow wires up end to end without a model", () => {
-  const repo = mkdtempSync(join(tmpdir(), "ai-review-dry-"));
-  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: repo });
-  execFileSync("git", ["config", "user.email", "t@example.com"], { cwd: repo });
-  execFileSync("git", ["config", "user.name", "t"], { cwd: repo });
-  writeFileSync(join(repo, ".ai-review.json"), JSON.stringify({ rules: [], model: "test/model" }));
-  writeFileSync(join(repo, "a.txt"), "one\n");
-  execFileSync("git", ["add", "-A"], { cwd: repo });
-  execFileSync("git", ["commit", "-qm", "base"], { cwd: repo });
-  execFileSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD"], { cwd: repo });
-  writeFileSync(join(repo, "b.txt"), "two\n");
-  execFileSync("git", ["add", "-A"], { cwd: repo });
-  execFileSync("git", ["commit", "-qm", "change"], { cwd: repo });
-
-  const out = execFileSync(process.execPath, [join(import.meta.dirname, "..", "src", "review.mjs")], {
-    cwd: repo,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      AI_REVIEW_DRY: "1",
-      AI_REVIEW_BASE_URL: "http://127.0.0.1:9/v1",
-      AI_REVIEW_API_KEY: "test",
-      PI_CODING_AGENT_DIR: join(repo, ".pi-cache"),
-      RUNNER_TEMP: repo,
-      GITHUB_WORKSPACE: repo,
-      BASE_REF: "origin/main",
-      PATH: process.env.PATH,
-    },
-  });
-
-  const result = JSON.parse(out.trim().split("\n").pop());
-  assert.equal(result.dryRun, true, "the workflow reached the point before the model call");
-  assert.ok(result.prompt > 0, "a prompt was assembled");
-  assert.ok(result.files >= 1, "the diff was read");
-  assert.ok(existsSync(result.frozen), "the frozen policy was written");
-  assert.ok(existsSync(join(result.frozen, "meta.json")), "with the floors the poster reads");
 });

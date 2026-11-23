@@ -44,8 +44,12 @@ const git = (args, dir = process.cwd()) =>
 const MAX_MODEL_ERRORS = 3;
 
 
-export async function run() {
+// The workflow. `options` is the seam tests use — a stand-in client, or a dry run that stops before the model. It is a
+// function argument and never an environment variable: a flag that can switch the sandbox off is a flag that eventually
+// gets set, and nothing in the environment should be able to do that.
+export async function run(options = {}) {
   const env = process.env;
+  const sandbox = options.sandbox !== false;
 
   const config = loadConfig();
   if (!config) {
@@ -64,10 +68,8 @@ export async function run() {
   if (!baseUrl) throw new Error("no endpoint: set AI_REVIEW_BASE_URL");
   if (!env[apiKeyEnv]) throw new Error(`${apiKeyEnv} is empty; the endpoint needs a key`);
 
-  // A dry run and an explicit no-sandbox run exercise the wiring, not the boundary, so a machine without
-  // bubblewrap can still check them. Neither is a shipped path: the action never sets these.
-  const needsSandbox = !env.AI_REVIEW_DRY && !env.AI_REVIEW_NO_SANDBOX;
-  if (needsSandbox && !bwrapAvailable()) {
+  // A dry run stops before the spawn, so it does not need a sandbox to prove the steps that come first.
+  if (sandbox && !options.dry && !bwrapAvailable()) {
     throw new Error(
       "bubblewrap is not installed, so the review cannot be sandboxed. Install it once per runner " +
         "(apt-get install bubblewrap); see docs/security.md.",
@@ -220,10 +222,7 @@ export async function run() {
     }
   }
   const tempDir = dirname(findingsFile);
-  // `PI_BIN` is normally one executable ("pi"). A JSON array is accepted for the tuning harness and for tests, where the
-  // "client" is a stand-in script and the command is really `node <script>` — which whitespace-splitting cannot express on
-  // a path like "C:/Program Files/nodejs/node.exe".
-  const piArgv = String(env.PI_BIN || "").startsWith("[") ? JSON.parse(env.PI_BIN) : [resolveExecutable(env.PI_BIN || "pi")];
+  const piArgv = options.clientArgv || [resolveExecutable(env.PI_BIN || "pi")];
   const piBin = piArgv[0];
   // The whole environment the child gets. `--clearenv` means this list is all there is: no PATH from the runner, no
   // key, no token, nothing inherited by accident.
@@ -241,7 +240,7 @@ export async function run() {
     // A per-run token the loopback proxy accepts, standing where the real key would be.
     [apiKeyEnv]: proxy.token,
   };
-  if (env.AI_REVIEW_DRY) {
+  if (options.dry) {
     // Everything up to the model call, so a refactor's wiring can be exercised without a device.
     console.log(JSON.stringify({ dryRun: true, prompt: prompt.length, frozen: frozenDir, agentDir, files: touched.length }));
     return { dryRun: true };
@@ -257,12 +256,12 @@ export async function run() {
     writable: [agentDir, findingsFile, notesFile],
     envForChild: childEnv,
   });
-  const childArgv = useSandbox ? ["bwrap", ...sandboxArgs] : [...piArgv, ...args];
+  const childArgv = sandbox ? ["bwrap", ...sandboxArgs] : [...piArgv, ...args];
 
   // The agent: the step owns the child's lifetime and returns the raw stream.
   const events = await runAgent({
     argv: childArgv,
-    childEnv: useSandbox ? null : childEnv,
+    childEnv: sandbox ? null : childEnv,
     eventsFile,
     transcriptFile,
     pathEnv: env.PATH,

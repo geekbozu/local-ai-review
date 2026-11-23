@@ -83,19 +83,21 @@ tools/leak-audit.mjs      dev only: what a public copy would leak
 
 ## Test affordances
 
-Four flags exist so the review can be exercised without a board or a device. The action sets none of them, and none changes
-a default: they are flags on the same code path, not a second implementation.
+The seams are **function arguments**, not environment variables. `run(options)` takes a stand-in client or a dry stop, and
+the CLI passes nothing — so nothing in the environment can change what the action enforces. A flag that can switch the
+sandbox off is a flag that eventually gets set, and that failure is silent.
 
-| flag | what it opens | used by |
+| seam | what it opens | used by |
 |---|---|---|
-| `AI_REVIEW_DRY` | steps up to the model call, then stops | the wiring test |
-| `AI_REVIEW_NO_SANDBOX` | spawns the client directly | the stand-in-client test |
-| `AI_REVIEW_SETTINGS_JSON` | merges over `modelSettings`, before validation | a sampler sweep |
-| `PI_BIN` as a JSON array | `node <script>` as the "client" | the stand-in-client test |
+| `run({ dry: true })` | steps up to the model call, then stops | the wiring test |
+| `run({ sandbox: false, clientArgv })` | a stand-in client instead of `pi` in `bwrap` | the end-to-end test |
+| `AI_REVIEW_SETTINGS_JSON` | merges over `modelSettings`, before validation | the tuning harness only |
 
-The tuning harness (`tools/eval.mjs`) needs none of them for isolation: it runs inside a container with bubblewrap, so a
-sweep tests the sandboxed path. It uses only the settings override, so sampler experiments never touch a repository's own
-config.
+The settings override is the only environment variable, and it is the only one that cannot weaken anything: it changes
+samplers, it is validated like the config file, and it cannot reach the sandbox, the client, or the poster.
+
+The harness (`tools/eval.mjs`) runs in a container with bubblewrap, so a sweep tests the sandboxed path rather than a
+bypass: `npm run eval -- --repo ../YourRepo --settings tools/eval/samplers.json --runs 2`.
 
 ## Verification
 

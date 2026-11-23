@@ -1,0 +1,13 @@
+{
+  "rules": [],
+  "severityFloor": "low",
+  "model": "Qwen/Qwen3-Coder-Next",
+  "thinking": "off",
+  "maxTurns": 20,
+  "modelSettings": {
+    "contextWindow": 262144,
+    "maxTokens": 16384,
+    "reasoning": false,
+    "thinkingFormat": "qwen-chat-template"
+  }
+}

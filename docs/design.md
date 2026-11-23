@@ -44,6 +44,8 @@ that holds the credential.**
 | D15 | Output is **posted through a sanitiser**: no raw HTML, images, mentions or forged markers, and caps on length | Markdown is not inert, and a dropped finding is still model output |
 | D16 | **Defaults describe a reviewer; deployments describe hardware** | A hardware-tuned default silently shortens every other deployment |
 
+Model measurements and the sampler rows that came from them: [`model-testing.md`](model-testing.md).
+
 ## What is not solved
 
 | | |

@@ -147,13 +147,5 @@
         "topK": 20
       }
     }
-  },
-  {
-    "name": "ornith device defaults",
-    "config": {
-      "model": "ornith-ai/Ornith-1.5-35B-A3B-Turbo",
-      "thinking": "off",
-      "deviceDefaults": true
-    }
   }
 ]

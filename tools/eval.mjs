@@ -12,7 +12,7 @@
 // Requires a reachable endpoint: AI_REVIEW_BASE_URL and AI_REVIEW_API_KEY in the environment, and Docker.
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, appendFileSync, mkdirSync, mkdtempSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 
@@ -201,6 +201,7 @@ for (let run = 1; run <= runs; run += 1) {
     }
     const row = {
       at: new Date().toISOString(),
+      sweep: `${process.pid}@${started}`,
       action: execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: join(here, ".."), encoding: "utf8" }).trim(),
       combo: combo.name || "unnamed",
       run,

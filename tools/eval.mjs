@@ -16,6 +16,8 @@ import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, existsSync } from 
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 
+const host = (p) => p.split("\\").join("/");
+
 const arg = (name, fallback = null) => {
   const i = process.argv.indexOf(`--${name}`);
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
@@ -125,7 +127,6 @@ for (let run = 1; run <= runs; run += 1) {
   for (const combo of combos) {
     // Per run, so a run cannot be polluted by the previous one's working tree.
     const built = fixture ? buildFixture(fixture) : null;
-    const work = mkdtempSync(join(tmpdir(), "eval-"));
     const target = built ? built.work : repo;
     const started = Date.now();
     let failure = null;
@@ -133,29 +134,29 @@ for (let run = 1; run <= runs; run += 1) {
       "docker",
       [
         "run", "--rm",
-        "--network", "host",
-        // bubblewrap needs mount and pid namespaces, which Docker's default capability set forbids. This is narrower than
-        // --privileged and is what makes the container run the *sandboxed* path rather than a bypass.
+        // bubblewrap needs mount and pid namespaces, which Docker's default capability set forbids. Narrower than
+        // --privileged, and it is what makes a sweep test the sandboxed path rather than a bypass.
         "--cap-add", "SYS_ADMIN", "--cap-add", "SYS_PTRACE",
         "--security-opt", "seccomp=unconfined", "--security-opt", "apparmor=unconfined",
-        "-v", `${target}:/work`,
-        "-v", `${here}/..:/action:ro`,
-        "-v", `${work}:/out`,
+        // One mount. Output goes inside it, so there is no second bind to get wrong — and Docker wants a forward-slash
+        // path, which is what `host` is.
+        "-v", `${host(target)}:/work`,
+        "-v", `${host(join(here, ".."))}:/action:ro`,
         "-w", "/work",
         "-e", `AI_REVIEW_BASE_URL=${process.env.AI_REVIEW_BASE_URL}`,
         "-e", `AI_REVIEW_API_KEY=${process.env.AI_REVIEW_API_KEY}`,
         "-e", `AI_REVIEW_SETTINGS_JSON=${JSON.stringify(combo.modelSettings || {})}`,
         "-e", `BASE_REF=${base}`,
         "-e", "GITHUB_WORKSPACE=/work",
-        "-e", "RUNNER_TEMP=/out",
-        "-e", "FINDINGS_FILE=/out/findings.jsonl",
-        "-e", "EVENTS_FILE=/out/events.jsonl",
-        "-e", "NOTES_FILE=/out/notes.txt",
-        "-e", "PROMPT_FILE=/out/prompt.txt",
-        "-e", "TRANSCRIPT_FILE=/out/transcript.md",
-        "-e", "PI_CODING_AGENT_DIR=/out/pi-cache",
+        "-e", "RUNNER_TEMP=/work/.eval",
+        "-e", "FINDINGS_FILE=/work/.eval/findings.jsonl",
+        "-e", "EVENTS_FILE=/work/.eval/events.jsonl",
+        "-e", "NOTES_FILE=/work/.eval/notes.txt",
+        "-e", "PROMPT_FILE=/work/.eval/prompt.txt",
+        "-e", "TRANSCRIPT_FILE=/work/.eval/transcript.md",
+        "-e", "PI_CODING_AGENT_DIR=/work/.eval/pi-cache",
         image,
-        "node", "/action/src/review.mjs",
+        "sh", "-c", "mkdir -p /work/.eval && node /action/src/review.mjs",
       ],
       { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" },
     );
@@ -169,7 +170,7 @@ for (let run = 1; run <= runs; run += 1) {
       combo: combo.name || "unnamed",
       run,
       ...(failure ? { error: failure.slice(0, 400) } : {}),
-      ...metrics(join(work, "events.jsonl"), join(work, "findings.jsonl"), Math.round((Date.now() - started) / 1000)),
+      ...metrics(join(target, ".eval", "events.jsonl"), join(target, ".eval", "findings.jsonl"), Math.round((Date.now() - started) / 1000)),
     };
     rows.push(row);
     writeFileSync(out, rows.map((r) => JSON.stringify(r)).join("\n") + "\n");

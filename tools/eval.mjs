@@ -16,6 +16,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, mkdtempSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
+import { device } from "./eval/device.mjs";
 
 const host = (p) => p.split("\\").join("/");
 
@@ -161,9 +162,14 @@ const metrics = (eventsPath, findingsPath, seconds) => {
 
 pruneOrphans();
 
+// Any OpenAI-compatible endpoint works; only a device that keeps one model resident needs to be told which to load. That
+// is an adapter, chosen with --device, and the default does nothing.
+const box = device({ kind: arg("device", "none"), baseUrl: process.env.AI_REVIEW_BASE_URL, key: process.env.AI_REVIEW_API_KEY });
+
 const rows = [];
-for (let run = 1; run <= runs; run += 1) {
-  for (const combo of combos) {
+for (const combo of combos) {
+  await box.ensure(combo.config.model);
+  for (let run = 1; run <= runs; run += 1) {
     // Per run, so a run cannot be polluted by the previous one's working tree.
     const built = fixture ? buildFixture(fixture) : null;
     const target = built.work;

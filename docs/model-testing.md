@@ -112,8 +112,17 @@ answers in four.
 
 ## The fixture sweep, and what it settled
 
-`tools/eval.mjs` runs the real review — in a container, sandbox on — against a pinned fixture with five planted
-defects, and scores each row against them by name. Two sampler rows, three runs each, on a Qwen3-Coder-Next at 3B active:
+`tools/eval.mjs` runs the real review — in a container, sandbox on — against a pinned fixture with five planted defects,
+and scores each row against them by name:
+
+```bash
+npm run eval -- --fixture planted --settings tools/eval/samplers.json --runs 3 --device tiiny
+```
+
+It talks to any OpenAI-compatible endpoint. The only device-specific part is model loading: a normal endpoint serves every
+model it has, while the Tiiny keeps **one** resident and answers 404 for anything else, so it is selected explicitly with
+`--device tiiny` (launch, then poll) and the default does nothing at all. Nothing else in the harness knows what hardware
+it is pointed at. Two sampler rows, three runs each, on a Qwen3-Coder-Next at 3B active:
 
 | combo | turns | wall | reports | kept | found | precision |
 |---|---|---|---|---|---|---|

@@ -1,0 +1,44 @@
+[
+  {
+    "name": "ornith device defaults, thinking off",
+    "config": {
+      "model": "ornith-ai/Ornith-1.5-35B-A3B-Turbo",
+      "thinking": "off",
+      "deviceDefaults": true,
+      "modelSettings": {
+        "chatTemplateKwargs": {
+          "enable_thinking": false
+        }
+      }
+    }
+  },
+  {
+    "name": "ornith presence 0",
+    "config": {
+      "model": "ornith-ai/Ornith-1.5-35B-A3B-Turbo",
+      "thinking": "off",
+      "deviceDefaults": true,
+      "modelSettings": {
+        "chatTemplateKwargs": {
+          "enable_thinking": false
+        },
+        "presencePenalty": 0
+      }
+    }
+  },
+  {
+    "name": "ornith presence 0 + temp 0.7",
+    "config": {
+      "model": "ornith-ai/Ornith-1.5-35B-A3B-Turbo",
+      "thinking": "off",
+      "deviceDefaults": true,
+      "modelSettings": {
+        "chatTemplateKwargs": {
+          "enable_thinking": false
+        },
+        "presencePenalty": 0,
+        "temperature": 0.7
+      }
+    }
+  }
+]

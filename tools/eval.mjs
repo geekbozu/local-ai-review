@@ -54,6 +54,20 @@ try {
   console.error(`${lock} exists — a sweep is already running (or exited badly; delete the file to continue)`);
   process.exit(3);
 }
+// A killed sweep leaves its `docker run` container alive, and that container keeps asking the model box for a review:
+// five of them once. Labelled, and pruned before a sweep starts, so an orphan cannot quietly compete for the device.
+const pruneOrphans = () => {
+  try {
+    const ids = execFileSync("docker", ["ps", "-aq", "--filter", "label=ai-review-eval"], { encoding: "utf8" })
+      .split(String.fromCharCode(10))
+      .filter(Boolean);
+    if (ids.length) {
+      execFileSync("docker", ["rm", "-f", ...ids], { stdio: "ignore" });
+      console.error(`pruned ${ids.length} container(s) left by an earlier sweep`);
+    }
+  } catch {}
+};
+
 const releaseLock = () => {
   try {
     execFileSync("rm", ["-f", lock]);
@@ -140,6 +154,8 @@ const metrics = (eventsPath, findingsPath, seconds) => {
   };
 };
 
+pruneOrphans();
+
 const rows = [];
 for (let run = 1; run <= runs; run += 1) {
   for (const combo of combos) {
@@ -152,6 +168,7 @@ for (let run = 1; run <= runs; run += 1) {
       "docker",
       [
         "run", "--rm",
+        "--label", "ai-review-eval",
         // bubblewrap needs mount and pid namespaces, which Docker's default capability set forbids. Narrower than
         // --privileged, and it is what makes a sweep test the sandboxed path rather than a bypass.
         "--cap-add", "SYS_ADMIN", "--cap-add", "SYS_PTRACE",

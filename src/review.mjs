@@ -279,6 +279,16 @@ export async function run() {
     .filter((m) => m.stopReason === "error" || m.errorMessage);
   for (const m of failures.slice(0, 3)) console.error(`[review] model error: ${m.errorMessage || m.stopReason}`);
 
+  // The agent can give up after a single failed turn, so "three consecutive errors" is not enough: a run in which the
+  // model never answered at all has to fail, or a 404 for an unloaded model is posted as a clean review that read nothing.
+  // Measured: one 404, one turn, "0 inline comments", and five changed files it never opened.
+  const answered = decoded.some(
+    (e) => e.type === "message_end" && e.message?.role === "assistant" && !e.message.errorMessage && e.message.stopReason !== "error",
+  );
+  if (!answered) {
+    throw new Error(`the model never answered: ${failures[0]?.errorMessage || failures[0]?.stopReason || "no response"}`);
+  }
+
   const lastText = decoded
     .filter((e) => e.type === "message_end" && e.message?.role === "assistant")
     .map((e) => (e.message.content || []).filter((b) => b.type === "text").map((b) => b.text).join(""))

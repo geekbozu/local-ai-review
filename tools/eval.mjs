@@ -44,6 +44,24 @@ for (const key of ["AI_REVIEW_BASE_URL", "AI_REVIEW_API_KEY"]) {
 
 const combos = JSON.parse(readFileSync(settingsFile, "utf8"));
 
+// A model box serves one request at a time and drops its prefix cache between unrelated requests, so two sweeps at once
+// do not halve the wall time: they corrupt both. One run of this script at a time, enforced rather than remembered.
+const lock = join(process.cwd(), "out", "eval.lock");
+mkdirSync(dirname(lock), { recursive: true });
+try {
+  writeFileSync(lock, String(process.pid), { flag: "wx" });
+} catch {
+  console.error(`${lock} exists — a sweep is already running (or exited badly; delete the file to continue)`);
+  process.exit(3);
+}
+const releaseLock = () => {
+  try {
+    execFileSync("rm", ["-f", lock]);
+  } catch {}
+};
+process.on("exit", releaseLock);
+process.on("SIGINT", () => process.exit(130));
+
 // A fixture is `base/` and `head/` plus `expect.json`: the harness commits base, then head, so every run sees the same
 // diff and can be scored against the defects that are known to be in it. A real repository is fine for smoke tests and
 // useless for comparison — its diff moves between sweeps.

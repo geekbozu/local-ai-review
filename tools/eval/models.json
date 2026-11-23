@@ -1,39 +1,66 @@
 [
   {
-    "name": "glm agentic (0.7)",
+    "name": "gemma device defaults",
     "config": {
-      "model": "zai-org/GLM-4.7-Flash",
+      "model": "google/gemma-4-26B-A4B-it",
+      "thinking": "off",
+      "deviceDefaults": true
+    }
+  },
+  {
+    "name": "gemma card (1.0/0.95/64)",
+    "config": {
+      "model": "google/gemma-4-26B-A4B-it",
       "thinking": "off",
       "modelSettings": {
         "contextWindow": 131072,
         "maxTokens": 16384,
-        "temperature": 0.7,
-        "topP": 1.0,
-        "topK": 20,
         "minP": 0.0,
         "presencePenalty": 0,
         "repeatPenalty": 1.0,
         "reasoning": false,
-        "thinkingFormat": "chat-template"
+        "thinkingFormat": "chat-template",
+        "temperature": 1.0,
+        "topP": 0.95,
+        "topK": 64
       }
     }
   },
   {
-    "name": "glm default (1.0)",
+    "name": "glm agentic (0.7/1.0)",
     "config": {
       "model": "zai-org/GLM-4.7-Flash",
       "thinking": "off",
       "modelSettings": {
         "contextWindow": 131072,
         "maxTokens": 16384,
-        "temperature": 1.0,
-        "topP": 0.95,
-        "topK": 40,
         "minP": 0.0,
         "presencePenalty": 0,
         "repeatPenalty": 1.0,
         "reasoning": false,
-        "thinkingFormat": "chat-template"
+        "thinkingFormat": "chat-template",
+        "temperature": 0.7,
+        "topP": 1.0,
+        "topK": 20
+      }
+    }
+  },
+  {
+    "name": "glm general (1.0/0.95)",
+    "config": {
+      "model": "zai-org/GLM-4.7-Flash",
+      "thinking": "off",
+      "modelSettings": {
+        "contextWindow": 131072,
+        "maxTokens": 16384,
+        "minP": 0.0,
+        "presencePenalty": 0,
+        "repeatPenalty": 1.0,
+        "reasoning": false,
+        "thinkingFormat": "chat-template",
+        "temperature": 1.0,
+        "topP": 0.95,
+        "topK": 40
       }
     }
   },
@@ -46,7 +73,34 @@
     }
   },
   {
-    "name": "qwen3.6-35B device defaults",
+    "name": "coder-next cool (0.6)",
+    "config": {
+      "model": "Qwen/Qwen3-Coder-Next",
+      "thinking": "off",
+      "modelSettings": {
+        "contextWindow": 262144,
+        "maxTokens": 16384,
+        "minP": 0.0,
+        "presencePenalty": 0,
+        "repeatPenalty": 1.0,
+        "reasoning": false,
+        "thinkingFormat": "qwen-chat-template",
+        "temperature": 0.6,
+        "topP": 0.95,
+        "topK": 20
+      }
+    }
+  },
+  {
+    "name": "coder-next device defaults",
+    "config": {
+      "model": "Qwen/Qwen3-Coder-Next",
+      "thinking": "off",
+      "deviceDefaults": true
+    }
+  },
+  {
+    "name": "qwen3.6 device defaults",
     "config": {
       "model": "Qwen/Qwen3.6-35B-A3B",
       "thinking": "off",
@@ -54,22 +108,30 @@
     }
   },
   {
-    "name": "qwen3.6-35B card (0.7)",
+    "name": "qwen3.6 card (0.7/0.8)",
     "config": {
       "model": "Qwen/Qwen3.6-35B-A3B",
       "thinking": "off",
       "modelSettings": {
         "contextWindow": 262144,
         "maxTokens": 16384,
-        "temperature": 0.7,
-        "topP": 0.8,
-        "topK": 20,
         "minP": 0.0,
         "presencePenalty": 1.5,
         "repeatPenalty": 1.0,
         "reasoning": true,
-        "thinkingFormat": "qwen-chat-template"
+        "thinkingFormat": "qwen-chat-template",
+        "temperature": 0.7,
+        "topP": 0.8,
+        "topK": 20
       }
+    }
+  },
+  {
+    "name": "ornith device defaults",
+    "config": {
+      "model": "ornith-ai/Ornith-1.5-35B-A3B-Turbo",
+      "thinking": "off",
+      "deviceDefaults": true
     }
   }
 ]

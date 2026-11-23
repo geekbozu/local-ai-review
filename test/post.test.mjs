@@ -298,3 +298,4 @@ test("a finding below the confidence floor is folded, not posted", () => {
   assert.ok(dropped.some((d) => d.reason === "below confidence 7"));
   assert.ok(dropped.some((d) => d.confidence === 4), "the folded entry keeps the number, so the reader can see why");
 });
+

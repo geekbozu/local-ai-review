@@ -114,16 +114,25 @@ export default function (pi) {
       const item = { id: `f${nextId++}`, ...params, at: Date.now() };
       items.push(item);
       flush();
+      // Measured: one run spent the whole cap of three on a single concern, phrased three ways. The identical-finding
+      // refusal above cannot see that, and the cap only complains at the fourth, so the second and third went in
+      // silently. Naming the siblings is the whole fix — the model already has update_finding and withdraw_finding.
+      const siblings = items.filter((i) => i.id !== item.id && i.path === item.path && i.severity === item.severity);
       return {
         content: [
           {
             type: "text",
             text:
               `recorded as ${item.id} (${items.length} finding(s) so far; confidence ${item.confidence}/10` +
-              `${item.confidence < 7 ? ", which will not be posted" : ""})`,
+              `${item.confidence < 7 ? ", which will not be posted" : ""})` +
+              (siblings.length
+                ? `. ${siblings.length} other ${item.severity} finding(s) already sit in ${item.path} ` +
+                  `(${siblings.map((i) => i.id).join(", ")}). If this is that concern in different words, say so in one ` +
+                  `entry with update_finding and withdraw the weaker one — three phrasings of one defect read as noise.`
+                : ""),
           },
         ],
-        details: { id: item.id, recorded: items.length },
+        details: { id: item.id, recorded: items.length, siblings: siblings.map((i) => i.id) },
       };
     },
   });

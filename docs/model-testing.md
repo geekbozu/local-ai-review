@@ -110,6 +110,33 @@ costs minutes of prefill and cannot be avoided by asking for a smaller context.
 Not adopted yet: it needs a cheaper build (INT4) or a much shorter review to be worth a 20-minute run, and the 80B
 answers in four.
 
+## The fixture sweep, and what it settled
+
+`tools/eval.mjs` runs the real review — in a container, sandbox on — against a pinned fixture with five planted
+defects, and scores each row against them by name. Two sampler rows, three runs each, on a Qwen3-Coder-Next at 3B active:
+
+| combo | turns | wall | reports | kept | found | precision |
+|---|---|---|---|---|---|---|
+| **0.6 / top_k 20 / no penalties** | 14 · 14 · 14 | 170 · 165 · 159 s | 4 | 4 | **3/5** | 3 of 4 |
+| 1.0 / top_k 40 / no penalties | 17 · 17 · 17 | 177 · 169 · 165 s | 11 | 9 | 2/5 | 2 of 9 |
+
+Three runs each and **every run within a combo is identical** — same turns, same findings, same defects found, same two
+missed, within eleven seconds. So:
+
+- **The sampler is not a consistency knob.** Both rows reproduce exactly. The 120-turn degeneration that dominated one
+  evening was fixed by tooling — the definition of done, the editable finding list, the duplicate and per-path refusals,
+  the enforced wrap-up — and not by temperature, DRY or a frequency penalty. Those were adopted because a community post
+  blamed temperature, and the fixture says temperature was never the variable.
+- **What the sampler does control is volume.** 1.0 emits eleven findings where 0.6 emits four, reproducibly, and is wrong
+  about seven of nine. Precision, not recall, is what separates them: 3 of 4 against 2 of 9.
+- **The same two defects are missed by everything**: an unescaped interpolation into HTML (medium) and a stale comment
+  above a changed value (low). Stable across settings, across models, across prompts. That is a prompt-priority problem
+  or a model-capability one, and it is now a specific thing to attack rather than a fog.
+- **Wall time is ~2m45**, on a five-file change with the 20-turn budget. Usable on every push.
+
+The chosen row is 0.6 with no penalties, because it reports four things of which three are true. It is not more
+consistent — both are — and it is not faster. It is simply the one whose output a person would accept.
+
 ## What the guards had to do, because no model did it
 
 Independently of the model, the harness had to stop certain behaviours, and each exists because a measured run did the

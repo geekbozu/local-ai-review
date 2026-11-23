@@ -1,0 +1,16 @@
+[
+  {
+    "name": "gemma no-thinking",
+    "config": {
+      "model": "google/gemma-4-26B-A4B-it",
+      "thinking": "off",
+      "modelSettings": {
+        "contextWindow": 131072, "maxTokens": 8192,
+        "temperature": 1.0, "topP": 0.95, "topK": 64, "minP": 0.0,
+        "presencePenalty": 0, "repeatPenalty": 1.0,
+        "reasoning": false, "thinkingFormat": "chat-template",
+        "chatTemplateKwargs": { "enable_thinking": false }
+      }
+    }
+  }
+]

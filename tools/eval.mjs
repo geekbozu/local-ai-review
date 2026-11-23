@@ -146,7 +146,13 @@ const metrics = (eventsPath, findingsPath, seconds) => {
     ? readFileSync(findingsPath, "utf8").split(String.fromCharCode(10)).filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean)
     : [];
   for (const want of expectations) {
-    if (scored.some((f) => String(f.path).includes(want.path) && String(f.quote).includes(want.quote))) hit.push(want.id);
+    const tokens = want.any || [want.quote || ""];
+    const found = scored.some(
+      (f) =>
+        String(f.path || "").includes(want.path) &&
+        tokens.some((t) => `${f.quote || ""}${f.body || ""}`.toLowerCase().includes(t.toLowerCase())),
+    );
+    if (found) hit.push(want.id);
   }
   const findings = existsSync(findingsPath)
     ? readFileSync(findingsPath, "utf8").split("\n").filter(Boolean).length
@@ -244,6 +250,7 @@ for (const combo of combos) {
       action: execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: join(here, ".."), encoding: "utf8" }).trim(),
       combo: combo.name || "unnamed",
       run,
+      work: target,
       ...(failure ? { error: failure.slice(0, 400) } : {}),
       ...metrics(join(target, ".eval", "events.jsonl"), join(target, ".eval", "findings.jsonl"), Math.round((Date.now() - started) / 1000)),
     };

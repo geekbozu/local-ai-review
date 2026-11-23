@@ -3,9 +3,9 @@
 // Nothing here knows which repository it is in.
 
 import { spawn, execFileSync } from "node:child_process";
-import { writeFileSync, readFileSync, existsSync, rmSync, lstatSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync, rmSync, lstatSync, mkdirSync, readdirSync, cpSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
+import { join, dirname, delimiter } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadConfig, loadConfigFromRef } from "./lib/config.mjs";
 import { normaliseBaseUrl } from "./lib/url.mjs";
@@ -64,7 +64,8 @@ export async function run() {
   if (!baseUrl) throw new Error("no endpoint: set AI_REVIEW_BASE_URL");
   if (!env[apiKeyEnv]) throw new Error(`${apiKeyEnv} is empty; the endpoint needs a key`);
 
-  if (!bwrapAvailable()) {
+  // A dry run exercises the wiring, not the sandbox, so a machine without bubblewrap can still check it.
+  if (!env.AI_REVIEW_DRY && !bwrapAvailable()) {
     throw new Error(
       "bubblewrap is not installed, so the review cannot be sandboxed. Install it once per runner " +
         "(apt-get install bubblewrap); see docs/security.md.",
@@ -234,6 +235,12 @@ export async function run() {
     // A per-run token the loopback proxy accepts, standing where the real key would be.
     [apiKeyEnv]: proxy.token,
   };
+  if (env.AI_REVIEW_DRY) {
+    // Everything up to the model call, so a refactor's wiring can be exercised without a device.
+    console.log(JSON.stringify({ dryRun: true, prompt: prompt.length, frozen: frozenDir, agentDir, files: touched.length }));
+    return { dryRun: true };
+  }
+
   const sandboxed = sandboxArgv({
     argv: [piBin, ...args],
     workspace,

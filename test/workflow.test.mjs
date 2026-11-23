@@ -1,0 +1,47 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// The workflow's wiring, exercised for real: config, diff, rules, prompt, frozen policy, agent directory — everything
+// up to the model call. Written after a refactor dropped an import that no test touched, so a 20-second review failed
+// with `ReferenceError: mkdirSync is not defined` on a board instead of here.
+test("the review workflow wires up end to end without a model", () => {
+  const repo = mkdtempSync(join(tmpdir(), "ai-review-dry-"));
+  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: repo });
+  execFileSync("git", ["config", "user.email", "t@example.com"], { cwd: repo });
+  execFileSync("git", ["config", "user.name", "t"], { cwd: repo });
+  writeFileSync(join(repo, ".ai-review.json"), JSON.stringify({ rules: [], model: "test/model" }));
+  writeFileSync(join(repo, "a.txt"), "one\n");
+  execFileSync("git", ["add", "-A"], { cwd: repo });
+  execFileSync("git", ["commit", "-qm", "base"], { cwd: repo });
+  execFileSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD"], { cwd: repo });
+  writeFileSync(join(repo, "b.txt"), "two\n");
+  execFileSync("git", ["add", "-A"], { cwd: repo });
+  execFileSync("git", ["commit", "-qm", "change"], { cwd: repo });
+
+  const out = execFileSync(process.execPath, [join(import.meta.dirname, "..", "src", "review.mjs")], {
+    cwd: repo,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      AI_REVIEW_DRY: "1",
+      AI_REVIEW_BASE_URL: "http://127.0.0.1:9/v1",
+      AI_REVIEW_API_KEY: "test",
+      PI_CODING_AGENT_DIR: join(repo, ".pi-cache"),
+      RUNNER_TEMP: repo,
+      GITHUB_WORKSPACE: repo,
+      BASE_REF: "origin/main",
+      PATH: process.env.PATH,
+    },
+  });
+
+  const result = JSON.parse(out.trim().split("\n").pop());
+  assert.equal(result.dryRun, true, "the workflow reached the point before the model call");
+  assert.ok(result.prompt > 0, "a prompt was assembled");
+  assert.ok(result.files >= 1, "the diff was read");
+  assert.ok(existsSync(result.frozen), "the frozen policy was written");
+  assert.ok(existsSync(join(result.frozen, "meta.json")), "with the floors the poster reads");
+});

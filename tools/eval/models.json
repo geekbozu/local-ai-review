@@ -1,45 +1,5 @@
 [
   {
-    "name": "gemma device defaults",
-    "config": {
-      "model": "google/gemma-4-26B-A4B-it",
-      "thinking": "off",
-      "deviceDefaults": true
-    }
-  },
-  {
-    "name": "gemma device defaults, thinking off",
-    "config": {
-      "model": "google/gemma-4-26B-A4B-it",
-      "thinking": "off",
-      "deviceDefaults": true,
-      "modelSettings": {
-        "chatTemplateKwargs": {
-          "enable_thinking": false
-        }
-      }
-    }
-  },
-  {
-    "name": "gemma card (1.0/0.95/64)",
-    "config": {
-      "model": "google/gemma-4-26B-A4B-it",
-      "thinking": "off",
-      "modelSettings": {
-        "contextWindow": 131072,
-        "maxTokens": 16384,
-        "minP": 0.0,
-        "presencePenalty": 0,
-        "repeatPenalty": 1.0,
-        "reasoning": false,
-        "thinkingFormat": "chat-template",
-        "temperature": 1.0,
-        "topP": 0.95,
-        "topK": 64
-      }
-    }
-  },
-  {
     "name": "glm agentic, thinking off",
     "config": {
       "model": "zai-org/GLM-4.7-Flash",
@@ -78,33 +38,6 @@
         "topP": 1.0,
         "topK": 20
       }
-    }
-  },
-  {
-    "name": "glm general (1.0/0.95)",
-    "config": {
-      "model": "zai-org/GLM-4.7-Flash",
-      "thinking": "off",
-      "modelSettings": {
-        "contextWindow": 131072,
-        "maxTokens": 16384,
-        "minP": 0.0,
-        "presencePenalty": 0,
-        "repeatPenalty": 1.0,
-        "reasoning": false,
-        "thinkingFormat": "chat-template",
-        "temperature": 1.0,
-        "topP": 0.95,
-        "topK": 40
-      }
-    }
-  },
-  {
-    "name": "glm device defaults",
-    "config": {
-      "model": "zai-org/GLM-4.7-Flash",
-      "thinking": "off",
-      "deviceDefaults": true
     }
   },
   {

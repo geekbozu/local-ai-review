@@ -64,8 +64,10 @@ export async function run() {
   if (!baseUrl) throw new Error("no endpoint: set AI_REVIEW_BASE_URL");
   if (!env[apiKeyEnv]) throw new Error(`${apiKeyEnv} is empty; the endpoint needs a key`);
 
-  // A dry run exercises the wiring, not the sandbox, so a machine without bubblewrap can still check it.
-  if (!env.AI_REVIEW_DRY && !bwrapAvailable()) {
+  // A dry run and an explicit no-sandbox run exercise the wiring, not the boundary, so a machine without
+  // bubblewrap can still check them. Neither is a shipped path: the action never sets these.
+  const needsSandbox = !env.AI_REVIEW_DRY && !env.AI_REVIEW_NO_SANDBOX;
+  if (needsSandbox && !bwrapAvailable()) {
     throw new Error(
       "bubblewrap is not installed, so the review cannot be sandboxed. Install it once per runner " +
         "(apt-get install bubblewrap); see docs/security.md.",
@@ -218,7 +220,11 @@ export async function run() {
     }
   }
   const tempDir = dirname(findingsFile);
-  const piBin = resolveExecutable(env.PI_BIN || "pi");
+  // `PI_BIN` is normally one executable ("pi"). A JSON array is accepted for the tuning harness and for tests, where the
+  // "client" is a stand-in script and the command is really `node <script>` — which whitespace-splitting cannot express on
+  // a path like "C:/Program Files/nodejs/node.exe".
+  const piArgv = String(env.PI_BIN || "").startsWith("[") ? JSON.parse(env.PI_BIN) : [resolveExecutable(env.PI_BIN || "pi")];
+  const piBin = piArgv[0];
   // The whole environment the child gets. `--clearenv` means this list is all there is: no PATH from the runner, no
   // key, no token, nothing inherited by accident.
   const childEnv = {
@@ -241,7 +247,9 @@ export async function run() {
     return { dryRun: true };
   }
 
-  const sandboxed = sandboxArgv({
+  // `AI_REVIEW_NO_SANDBOX` exists for the tuning harness and for tests with a stand-in client; the action never sets it.
+  const useSandbox = !env.AI_REVIEW_NO_SANDBOX;
+  const sandboxArgs = sandboxArgv({
     argv: [piBin, ...args],
     workspace,
     // The two files, not the directory. A writable runner.temp let the agent delete or replace events.jsonl, which is
@@ -249,17 +257,16 @@ export async function run() {
     writable: [agentDir, findingsFile, notesFile],
     envForChild: childEnv,
   });
+  const childArgv = useSandbox ? ["bwrap", ...sandboxArgs] : [...piArgv, ...args];
 
-  // The agent, inside the sandbox: the step owns the child's lifetime and returns the raw stream.
+  // The agent: the step owns the child's lifetime and returns the raw stream.
   const events = await runAgent({
-    sandboxed,
+    argv: childArgv,
+    childEnv: useSandbox ? null : childEnv,
     eventsFile,
     transcriptFile,
     pathEnv: env.PATH,
   });
-
-
-  await trace.close();
 
   // The readable view of the same run: what it thought, what it ran, what came back, what it decided. The raw
   // stream is kept beside it because a rendering is an interpretation and the stream is the evidence.

@@ -86,14 +86,16 @@ export function watch({ onFinding, onTurn, onFatal }) {
 
 // The sandbox does not inherit the job's PATH, and pi lives wherever npm put it — often a prefix that is on the job's
 
-export async function runAgent({ sandboxed, eventsFile, transcriptFile, pathEnv }) {
+export async function runAgent({ argv, childEnv = null, eventsFile, transcriptFile, pathEnv }) {
   const events = [];
   // Written as it arrives: a run that is killed leaves the trace of how far it got, which is the run worth reading.
   const trace = openTrace(eventsFile);
   await new Promise((resolve, reject) => {
-    const child = spawn("bwrap", sandboxed, {
+    const child = spawn(argv[0], argv.slice(1), {
       stdio: ["pipe", "pipe", "pipe"],
-      env: { PATH: pathEnv || "/usr/bin:/bin" },
+      // Unsandboxed (a local harness, or a test with a stand-in client) the child needs the environment the sandbox would
+      // otherwise inject; sandboxed, `--setenv` already carries it.
+      env: childEnv || { PATH: pathEnv || "/usr/bin:/bin" },
     });
     // The instructions are in the appended system prompt; this is the kickoff, not a second copy of them.
     child.stdin.end("Review the change described in your instructions. Report what you find with report_finding.");

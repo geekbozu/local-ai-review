@@ -44,6 +44,11 @@ const DEFAULTS = {
     topK: 20,
     minP: 0,
     presencePenalty: 0,
+    // Repetition controls beyond presence: a frequency penalty, and DRY (which penalises repeated *sequences* rather
+    // than tokens). Both default to off — a sampler preference is a deployment's, not a default's.
+    frequencyPenalty: 0,
+    dryMultiplier: 0, // 0 = off
+    dryAllowedLength: 0,
     repeatPenalty: 1,
     reasoning: true, // does the template accept a thinking/reasoning parameter at all
     thinkingFormat: "openai", // how it is spelled: openai | qwen-chat-template | chat-template | none
@@ -117,7 +122,19 @@ function validate(raw, path) {
       throw new Error(`${CONFIG_FILE}: riskHints contains an invalid regular expression: ${p}`);
     }
   }
-  const numbers = ["contextWindow", "maxTokens", "temperature", "topP", "topK", "minP", "presencePenalty", "repeatPenalty"];
+  const numbers = [
+    "contextWindow",
+    "maxTokens",
+    "temperature",
+    "topP",
+    "topK",
+    "minP",
+    "presencePenalty",
+    "frequencyPenalty",
+    "repeatPenalty",
+    "dryMultiplier",
+    "dryAllowedLength",
+  ];
   for (const key of numbers) {
     const value = config.modelSettings[key];
     if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {

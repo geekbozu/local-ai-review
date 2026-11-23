@@ -280,6 +280,15 @@ export function writeAgentDir({ model, baseUrl, apiKeyEnv, settings }) {
                   min_p: settings.minP,
                   presence_penalty: settings.presencePenalty,
                   repeat_penalty: settings.repeatPenalty,
+                  // Sent only when a deployment sets them: a server that does not know a field may reject the request,
+                  // and these are for a model that loops, not for every model.
+                  ...(settings.frequencyPenalty > 0 ? { frequency_penalty: settings.frequencyPenalty } : {}),
+                  ...(settings.dryMultiplier > 0
+                    ? {
+                        dry_multiplier: settings.dryMultiplier,
+                        dry_allowed_length: Math.max(1, settings.dryAllowedLength || 2),
+                      }
+                    : {}),
                 },
                 thinkingLevelMap: levels,
               },

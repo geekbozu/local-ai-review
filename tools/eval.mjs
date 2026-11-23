@@ -187,7 +187,20 @@ for (const combo of combos) {
       : combo.config;
     writeFileSync(
       join(target, ".ai-review.json"),
-      JSON.stringify({ rules: [], severityFloor: "low", maxTurns: combo.maxTurns || 20, ...settings }, null, 2),
+      JSON.stringify(
+        {
+          rules: [],
+          severityFloor: "low",
+          maxTurns: combo.maxTurns || 20,
+          // A deployment fact, and the one this box needs: without it a run grows to the whole 131k window, and every
+          // later turn pays a four-minute prefill until the device cuts the request at ten minutes. It is not a default
+          // — the action ships 0 — but every deployment that runs on this hardware has to say it.
+          contextBudget: combo.contextBudget || 32000,
+          ...settings,
+        },
+        null,
+        2,
+      ),
     );
     const started = Date.now();
     let failure = null;

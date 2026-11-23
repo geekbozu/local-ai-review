@@ -8,6 +8,19 @@
     }
   },
   {
+    "name": "gemma device defaults, thinking off",
+    "config": {
+      "model": "google/gemma-4-26B-A4B-it",
+      "thinking": "off",
+      "deviceDefaults": true,
+      "modelSettings": {
+        "chatTemplateKwargs": {
+          "enable_thinking": false
+        }
+      }
+    }
+  },
+  {
     "name": "gemma card (1.0/0.95/64)",
     "config": {
       "model": "google/gemma-4-26B-A4B-it",

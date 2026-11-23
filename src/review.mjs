@@ -314,6 +314,18 @@ export async function run(options = {}) {
     }
   })();
 
+  // Measured on gemma: five runs answered with token soup ("<find<|\"|>..."), made no tool call and filed nothing, and
+  // every one of them passed the `answered` check above because the stop reason was "stop" and there was no error. A
+  // review that read nothing is not a clean review. The action refuses an empty diff before this point, so a legitimate
+  // pass has at least one tool call and cannot be confused with this.
+  const toolCalls = decoded.filter((e) => e.type === "tool_execution_start").length;
+  if (toolCalls === 0 && findings === 0) {
+    throw new Error(
+      "the model read nothing and reported nothing: no tool call was made, so this is not a clean review — " +
+        `check the endpoint serves this model (${failures.length} failure(s), last stop reason ${decoded.at(-1)?.message?.stopReason ?? "unknown"})`,
+    );
+  }
+
   const result = {
     findings,
     touched: touched.length,

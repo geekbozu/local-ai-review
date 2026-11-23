@@ -97,3 +97,19 @@ test("a whole review runs against a stand-in client", async () => {
   assert.equal(result.touched, 1, "the diff was read");
   assert.ok(existsSync(join(repo, "transcript.md")), "a transcript was rendered");
 });
+
+// Measured on gemma: five runs answered with token soup, made no tool call and filed nothing, and passed as a clean
+// review because stopReason was "stop" and nothing errored.
+test("a model that reads nothing and reports nothing fails the run", async () => {
+  const repo = tempRepo();
+  await assert.rejects(
+    () =>
+      withRepo(repo, () =>
+        run({
+          sandbox: false,
+          clientArgv: [process.execPath, join(import.meta.dirname, "fixtures", "fake-pi.mjs"), "silent"],
+        }),
+      ),
+    /read nothing and reported nothing/,
+  );
+});

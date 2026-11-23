@@ -70,5 +70,6 @@ export const devices = { none, tiiny };
 export const device = ({ kind, baseUrl, key }) => {
   const factory = devices[kind];
   if (!factory) throw new Error(`unknown --device "${kind}": expected one of ${Object.keys(devices).join(", ")}`);
-  return factory(baseUrl, key);
+  // "none" is already an adapter; the hardware adapters are factories that need the endpoint.
+  return typeof factory === "function" ? factory(baseUrl, key) : factory;
 };

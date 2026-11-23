@@ -11,6 +11,22 @@ import { appendFileSync } from "node:fs";
 const emit = (event) => process.stdout.write(JSON.stringify(event) + "\n");
 const now = Date.now();
 
+// `silent` as argv[2] reproduces the failure that made the empty-review guard necessary: one assistant turn, token soup
+// for a message, no tool call, no finding, stopReason "stop". Everything except the guard reads that as a clean review.
+if (process.argv[2] === "silent") {
+  emit({ type: "session", version: 3, id: "fake", timestamp: new Date(now).toISOString(), cwd: process.cwd() });
+  emit({ type: "agent_start" });
+  emit({ type: "turn_start" });
+  emit({ type: "message_start", message: { role: "assistant", content: [] } });
+  emit({
+    type: "message_end",
+    message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: '<find<|"|>} <thought' }] },
+  });
+  emit({ type: "turn_end", toolResults: [] });
+  emit({ type: "agent_end", messages: [] });
+  process.exit(0);
+}
+
 emit({ type: "session", version: 3, id: "fake", timestamp: new Date(now).toISOString(), cwd: process.cwd() });
 emit({ type: "agent_start" });
 

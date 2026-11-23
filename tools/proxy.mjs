@@ -39,6 +39,8 @@ const summarise = (url, body) => {
       ? j.messages.map((m) => `${m.role}:${typeof m.content === "string" ? m.content.length : "parts"}`)
       : undefined,
     bytes: body.length,
+    // Replayable: a summary proves what was sent, the body lets the same request be re-sent to compare.
+    raw: body.toString("utf8"),
   };
 };
 
@@ -77,4 +79,6 @@ http
     }
     res.end();
   })
-  .listen(PORT, "127.0.0.1", () => console.error(`proxy on http://127.0.0.1:${PORT} -> ${UPSTREAM}`));
+  .listen(PORT, process.env.HOST || "127.0.0.1", () =>
+    console.error(`proxy on http://${process.env.HOST || "127.0.0.1"}:${PORT} -> ${UPSTREAM}`),
+  );

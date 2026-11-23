@@ -27,6 +27,28 @@
     }
   },
   {
+    "name": "glm agentic, thinking off",
+    "config": {
+      "model": "zai-org/GLM-4.7-Flash",
+      "thinking": "off",
+      "modelSettings": {
+        "contextWindow": 131072,
+        "maxTokens": 16384,
+        "minP": 0.0,
+        "presencePenalty": 0,
+        "repeatPenalty": 1.0,
+        "reasoning": false,
+        "thinkingFormat": "chat-template",
+        "temperature": 0.7,
+        "topP": 1.0,
+        "topK": 20,
+        "chatTemplateKwargs": {
+          "enable_thinking": false
+        }
+      }
+    }
+  },
+  {
     "name": "glm agentic (0.7/1.0)",
     "config": {
       "model": "zai-org/GLM-4.7-Flash",

@@ -50,6 +50,10 @@ const DEFAULTS = {
     dryMultiplier: 0, // 0 = off
     dryAllowedLength: 0,
     repeatPenalty: 1,
+    // Fields handed to the server's chat template verbatim, e.g. { "enable_thinking": false }. `thinking` cannot express
+    // this: some templates reason by default and take no effort parameter, so "off" has to be said in the template's own
+    // vocabulary. Empty means send nothing.
+    chatTemplateKwargs: {},
     reasoning: true, // does the template accept a thinking/reasoning parameter at all
     thinkingFormat: "openai", // how it is spelled: openai | qwen-chat-template | chat-template | none
   },
@@ -144,6 +148,9 @@ function validate(raw, path) {
   }
   if (!["openai", "qwen-chat-template", "chat-template", "none"].includes(config.modelSettings.thinkingFormat)) {
     throw new Error(`${CONFIG_FILE}: modelSettings.thinkingFormat must be openai, qwen-chat-template, chat-template or none`);
+  }
+  if (typeof config.modelSettings.chatTemplateKwargs !== "object" || config.modelSettings.chatTemplateKwargs === null) {
+    throw new Error(`${CONFIG_FILE}: modelSettings.chatTemplateKwargs must be an object`);
   }
   if (typeof config.modelSettings.reasoning !== "boolean") {
     throw new Error(`${CONFIG_FILE}: modelSettings.reasoning must be true or false`);

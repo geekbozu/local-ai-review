@@ -1,0 +1,26 @@
+[
+  {
+    "name": "loopfix (0.8/dry)",
+    "modelSettings": {
+      "temperature": 0.8, "topP": 0.95, "topK": 40, "minP": 0.01,
+      "presencePenalty": 1.10, "frequencyPenalty": 0.5, "dryMultiplier": 0.5, "dryAllowedLength": 5,
+      "repeatPenalty": 1.0, "reasoning": false, "thinkingFormat": "qwen-chat-template"
+    }
+  },
+  {
+    "name": "card (1.0)",
+    "modelSettings": {
+      "temperature": 1.0, "topP": 0.95, "topK": 40, "minP": 0.0,
+      "presencePenalty": 0, "frequencyPenalty": 0, "dryMultiplier": 0, "dryAllowedLength": 0,
+      "repeatPenalty": 1.0, "reasoning": false, "thinkingFormat": "qwen-chat-template"
+    }
+  },
+  {
+    "name": "cool (0.6)",
+    "modelSettings": {
+      "temperature": 0.6, "topP": 0.95, "topK": 20, "minP": 0.0,
+      "presencePenalty": 0, "frequencyPenalty": 0, "dryMultiplier": 0, "dryAllowedLength": 0,
+      "repeatPenalty": 1.0, "reasoning": false, "thinkingFormat": "qwen-chat-template"
+    }
+  }
+]

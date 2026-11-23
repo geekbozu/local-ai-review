@@ -81,6 +81,22 @@ tools/proxy.mjs           dev only: logs what the client puts on the wire
 tools/leak-audit.mjs      dev only: what a public copy would leak
 ```
 
+## Test affordances
+
+Four flags exist so the review can be exercised without a board or a device. The action sets none of them, and none changes
+a default: they are flags on the same code path, not a second implementation.
+
+| flag | what it opens | used by |
+|---|---|---|
+| `AI_REVIEW_DRY` | steps up to the model call, then stops | the wiring test |
+| `AI_REVIEW_NO_SANDBOX` | spawns the client directly | the stand-in-client test |
+| `AI_REVIEW_SETTINGS_JSON` | merges over `modelSettings`, before validation | a sampler sweep |
+| `PI_BIN` as a JSON array | `node <script>` as the "client" | the stand-in-client test |
+
+The tuning harness (`tools/eval.mjs`) needs none of them for isolation: it runs inside a container with bubblewrap, so a
+sweep tests the sandboxed path. It uses only the settings override, so sampler experiments never touch a repository's own
+config.
+
 ## Verification
 
 | Check | Result |

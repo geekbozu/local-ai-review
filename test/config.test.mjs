@@ -273,7 +273,7 @@ test("a bad model setting fails the run rather than shipping a silent default", 
 test("every module the run imports resolves — a missing export is caught here, not on a board", async () => {
   // node --check validates syntax only. A wholesale rewrite of a module can drop an export and every syntax check
   // still passes, which is exactly how a review job failed in one minute with a SyntaxError from the import site.
-  await import("../src/review.mjs");
+  await import("../src/steps/agent-dir.mjs");
   await import("../src/post.mjs");
   const prompt = await import("../src/lib/prompt.mjs");
   for (const name of ["buildPrompt", "thoroughBrief"]) {
@@ -284,7 +284,7 @@ test("every module the run imports resolves — a missing export is caught here,
 });
 
 test("the model entry is built from config, and a non-thinking model sends no shim", async () => {
-  const { writeAgentDir } = await import("../src/review.mjs");
+  const { writeAgentDir } = await import("../src/steps/agent-dir.mjs");
   const { readFileSync } = await import("node:fs");
   const base = {
     contextWindow: 131072, maxTokens: 65536, temperature: 0.3, topP: 0.9, topK: 20,

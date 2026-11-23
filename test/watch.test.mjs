@@ -1,7 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { dirname } from "node:path";
-import { watch, resolveExecutable, startKeyProxy } from "../src/review.mjs";
+import { watch } from "../src/steps/agent-run.mjs";
+import { resolveExecutable } from "../src/steps/sandbox.mjs";
+import { startKeyProxy } from "../src/steps/proxy.mjs";
 
 // The line this produces is the only per-run record that survives a rerun — artifacts are replaced by the next
 // attempt — so it has to say which finding was found. It said `undefined undefined` twice: first because the

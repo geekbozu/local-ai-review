@@ -3,20 +3,21 @@
 // Nothing here knows which repository it is in.
 
 import { spawn, execFileSync } from "node:child_process";
-import { createServer } from "node:http";
-import { randomBytes } from "node:crypto";
-import { writeFileSync, mkdirSync, readFileSync, readdirSync, existsSync, cpSync, accessSync, constants, rmSync, lstatSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync, rmSync, lstatSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname, delimiter } from "node:path";
+import { join, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadConfig, loadConfigFromRef } from "./lib/config.mjs";
 import { normaliseBaseUrl } from "./lib/url.mjs";
 import { openedFiles, uncovered } from "./lib/coverage.mjs";
-import { openTrace } from "./lib/trace.mjs";
-import { renderTranscript } from "./lib/transcript.mjs";
 
 import { parseDiff, touchedPaths, diffStats } from "./lib/diff.mjs";
 import { buildPrompt } from "./lib/prompt.mjs";
+import { renderTranscript } from "./lib/transcript.mjs";
+import { bwrapAvailable, resolveExecutable, sandboxArgv } from "./steps/sandbox.mjs";
+import { startKeyProxy } from "./steps/proxy.mjs";
+import { seedAgentDir, writeAgentDir } from "./steps/agent-dir.mjs";
+import { runAgent } from "./steps/agent-run.mjs";
 import { restoreRulesFromBase } from "./lib/rules.mjs";
 
 // Pinned by commit: pi fetches it once, and a checkout of that commit is never refetched on later runs.
@@ -42,288 +43,6 @@ const git = (args, dir = process.cwd()) =>
 // Enough consecutive failures to call the endpoint dead rather than flaky. Three spaced ≈ a minute of trying.
 const MAX_MODEL_ERRORS = 3;
 
-export function watch({ onFinding, onTurn, onFatal }) {
-  let buffer = "";
-  let turn = 0;
-  let findings = 0;
-  // Tool arguments arrive on the start event; the end event carries only the outcome. This outlives a chunk, because a
-  // start and its end routinely land in different reads — inside the chunk handler, every lookup missed and the log
-  // said `finding 1: undefined undefined`.
-  const args = new Map();
-  const started = Date.now();
-  let consecutiveErrors = 0;
-
-  return (chunk) => {
-    buffer += chunk.toString("utf8");
-    const lines = buffer.split(String.fromCharCode(10));
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      let event;
-      try {
-        event = JSON.parse(line);
-      } catch {
-        continue;
-      }
-
-      // The model host is allowed to hiccup. One failed call is a bad request: the agent gets another turn, and a
-      // success resets the count. A run of them is an endpoint that is not coming back — a model the device does not
-      // have loaded, a dead key — and waiting out the rest of the budget would only delay the same answer.
-      if (event.type === "message_end" && event.message?.role === "assistant") {
-        if (event.message.stopReason === "error" || event.message.errorMessage) {
-          consecutiveErrors += 1;
-          if (consecutiveErrors >= MAX_MODEL_ERRORS) {
-            onFatal?.(event.message.errorMessage || "the model call failed");
-            continue;
-          }
-        } else {
-          consecutiveErrors = 0;
-        }
-      }
-
-      if (event.type === "tool_execution_start") {
-        args.set(event.toolCallId, event.args || {});
-        // The list can shrink, so the count in these lines is what the agent *did*, and the file is what it *has*. The
-        // two disagreed the moment withdraw_finding existed: the summary reported 19 while the file held 7.
-        const a = event.args || {};
-        if (event.toolName === "report_finding") console.error(`[ai-review] reported: ${a.severity} ${a.path}`);
-        else if (event.toolName === "withdraw_finding") console.error(`[ai-review] withdrew: ${a.id}`);
-        else if (event.toolName === "update_finding") console.error(`[ai-review] updated: ${a.id}`);
-        continue;
-      }
-
-      if (event.type === "tool_execution_end" && event.toolName === "report_finding" && !event.isError) {
-        findings += 1;
-        const found = args.get(event.toolCallId) || {};
-        onFinding?.({ findings, severity: found.severity, path: found.path, body: String(found.body || "") });
-      }
-
-      if (event.type === "turn_end") {
-        turn += 1;
-        const tools = (event.toolResults || []).map((r) => r.toolName).filter(Boolean);
-        onTurn?.({ turn, seconds: Math.round((Date.now() - started) / 1000), tools, findings });
-      }
-    }
-  };
-}
-
-// The model catalogue is generated from inputs so no repository has to carry one. This is also the only place the
-// key is placed, and it goes in with $NAME so it is never written to disk.
-// --- the sandbox --------------------------------------------------------------------------------------------------
-// Everything below is what the OS enforces. The previous design read `bash` command strings and decided what was
-// allowed; a relative path defeated it in one attempt, and no amount of pattern-writing wins that game. A mount
-// cannot be argued with.
-
-// The sandbox does not inherit the job's PATH, and pi lives wherever npm put it — often a prefix that is on the job's
-// PATH and nowhere else. Resolving to an absolute path is what makes the same command work inside and outside.
-export function resolveExecutable(name, path = process.env.PATH || "") {
-  if (name.includes("/")) return name;
-  for (const dir of path.split(delimiter)) {
-    if (!dir) continue;
-    const candidate = join(dir, name);
-    try {
-      accessSync(candidate, constants.X_OK);
-      return candidate;
-    } catch {
-      // keep looking
-    }
-  }
-  return name;
-}
-
-export function bwrapAvailable() {
-  try {
-    execFileSync("bwrap", ["--version"], { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-// Root is read-only; the workspace and a per-job directory are writable; the action's own checkout is hidden rather
-// than forbidden; the environment is cleared and rebuilt from the whitelist below.
-export function sandboxArgv({ argv, workspace, writable = [], envForChild = {} }) {
-  // No uid drop, and not by preference. A runner container commonly runs as root, and `--unshare-user` then maps root
-  // to root, so `--uid 1000` lands on the overflow uid and can write nowhere — measured. Dropping privileges needs a
-  // non-root runner user, which is the runner's decision rather than this action's. What is enforced instead: every
-  // capability gone, so even as root there is no DAC override, no mount, no ptrace; nothing writable but two binds;
-  // and the places worth reading hidden rather than guarded.
-  const args = [
-    "--ro-bind", "/", "/",
-    "--bind", workspace, workspace,
-    "--tmpfs", "/root",
-    // /var/run is a symlink to /run, and docker is not the only socket there: containerd, podman and cri-o all live in
-    // this tree. Hiding the directory covers the ones nobody thought of.
-    "--tmpfs", "/run",
-    "--ro-bind-try", "/dev/null", "/var/run/docker.sock",
-    "--tmpfs", "/tmp",
-    "--dev", "/dev",
-    "--proc", "/proc",
-    "--unshare-pid",
-    "--die-with-parent",
-    "--clearenv",
-    "--cap-drop", "ALL",
-  ];
-  for (const dir of writable) if (dir && existsSync(dir)) args.push("--bind", dir, dir);
-  // The runner checks the action out beside the repository. A review that reads the reviewer is reviewing the wrong
-  // thing, and this is the version of that rule that holds.
-  const actions = join(dirname(dirname(workspace)), "_actions");
-  if (existsSync(actions)) args.push("--tmpfs", actions);
-  for (const [key, value] of Object.entries(envForChild)) {
-    if (value !== undefined) args.push("--setenv", key, String(value));
-  }
-  args.push("--", ...argv);
-  return args;
-}
-
-// The endpoint key must not exist inside the sandbox: with `bash` available, anything in the environment is readable by
-// whatever the model was talked into running. This holds the key, listens on loopback, and accepts one per-run token.
-// A convinced model can still use the model it was already using; it cannot take the credential.
-export async function startKeyProxy({ target, realKey }) {
-  const token = randomBytes(24).toString("hex");
-  const base = target.replace(/\/+$/, "");
-
-  const server = createServer(async (req, res) => {
-    const reply = (status, payload) => {
-      res.writeHead(status, { "content-type": "application/json" });
-      res.end(JSON.stringify(payload));
-    };
-    if (req.headers.authorization !== `Bearer ${token}`) return reply(401, { error: { message: "unauthorized" } });
-
-    const chunks = [];
-    for await (const chunk of req) chunks.push(chunk);
-    // The base URL already ends at /v1 and pi appends /chat/completions to it, so a path that carries its own /v1 is
-    // not duplicated.
-    const path = base.endsWith("/v1") && req.url.startsWith("/v1") ? req.url.slice(3) : req.url;
-    try {
-      const upstream = await fetch(base + path, {
-        method: req.method,
-        headers: {
-          "content-type": req.headers["content-type"] || "application/json",
-          authorization: `Bearer ${realKey}`,
-        },
-        body: chunks.length ? Buffer.concat(chunks) : undefined,
-      });
-      res.writeHead(upstream.status, { "content-type": upstream.headers.get("content-type") || "application/json" });
-      res.end(Buffer.from(await upstream.arrayBuffer()));
-    } catch (err) {
-      reply(502, { error: { message: String(err && err.message) } });
-    }
-  });
-
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  // An `http` server keeps the event loop alive, so the whole review finished, printed its summary and then hung until
-  // the job was cancelled. Unref'd, it still answers while the child is alive and cannot outlive the work.
-  server.unref();
-  return { server, token, baseUrl: `http://127.0.0.1:${server.address().port}` };
-}
-
-// The shared agent dir holds pi's package cache, so a board pays for it once. It is never handed to the sandbox: a
-// writable shared cache is a way of making the next run load attacker-chosen code. Each job gets a copy.
-function seedAgentDir() {
-  const cache = process.env.PI_CODING_AGENT_DIR;
-  const dir = join(process.env.RUNNER_TEMP || tmpdir(), `ai-review-agent-${process.pid}`);
-  mkdirSync(dir, { recursive: true });
-  if (cache && cache !== dir && existsSync(cache)) {
-    try {
-      cpSync(cache, dir, { recursive: true });
-    } catch (err) {
-      console.error(`[ai-review] could not seed the agent dir from ${cache}: ${err.message}`);
-    }
-  }
-  return dir;
-}
-
-export function writeAgentDir({ model, baseUrl, apiKeyEnv, settings }) {
-  // Supplied by the action when the runner keeps a directory between jobs, so pi's `-e` package cache persists.
-  const dir = process.env.PI_CODING_AGENT_DIR || join(tmpdir(), `ai-review-agent-${process.pid}`);
-  mkdirSync(dir, { recursive: true });
-
-  // A model with no thinking parameter gets no compatibility shim: sending reasoning_effort to a template that does not
-  // read it is ignored at best. The wire format is the repo's choice — see modelSettings.thinkingFormat.
-  // supportsMidConvoSystemMessages is load-bearing, not cosmetic: pi-rules injects rules as a mid-conversation system
-  // message, and without this the adapter folds it into the *leading* prompt, rewriting every token after the fold and
-  // dropping the prefix cache to single-digit percentages. Measured in this repo's own tooling.
-  const compat = {
-    ...(settings.reasoning && settings.thinkingFormat !== "none" ? { thinkingFormat: settings.thinkingFormat } : {}),
-    supportsMidConvoSystemMessages: true,
-  };
-  const levels = { minimal: "minimal", low: "low", medium: "medium", high: "high" };
-
-  writeFileSync(
-    join(dir, "models.json"),
-    JSON.stringify(
-      {
-        providers: {
-          local: {
-            baseUrl,
-            api: "openai-completions",
-            apiKey: `$${apiKeyEnv}`,
-            models: [
-              {
-                id: model,
-                name: model,
-                reasoning: settings.reasoning,
-                input: ["text"],
-                // No max_tokens is sent per request: an OpenAI-compatible server defaults to its own limit (-1 on the
-                // hardware this was built against, meaning the context). maxTokens here is the client's output budget,
-                // and below the size of the model's thinking it truncates a turn mid-thought and returns no tool call.
-                contextWindow: settings.contextWindow,
-                maxTokens: settings.maxTokens,
-                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-                compat,
-                samplingParams: {
-                  temperature: settings.temperature,
-                  top_p: settings.topP,
-                  top_k: settings.topK,
-                  min_p: settings.minP,
-                  presence_penalty: settings.presencePenalty,
-                  repeat_penalty: settings.repeatPenalty,
-                  // Sent only when a deployment sets them: a server that does not know a field may reject the request,
-                  // and these are for a model that loops, not for every model.
-                  ...(settings.frequencyPenalty > 0 ? { frequency_penalty: settings.frequencyPenalty } : {}),
-                  ...(settings.dryMultiplier > 0
-                    ? {
-                        dry_multiplier: settings.dryMultiplier,
-                        dry_allowed_length: Math.max(1, settings.dryAllowedLength || 2),
-                      }
-                    : {}),
-                },
-                thinkingLevelMap: levels,
-              },
-            ],
-          },
-        },
-      },
-      null,
-      2,
-    ),
-  );
-
-  // Compaction starts at a fifth of the window, so a long review summarises before the context forces it.
-  // `httpIdleTimeoutMs` is the client's own patience, and its default of five minutes is shorter than a slow device needs
-  // to read a large prompt: it abandons runs that were working, and the failure arrives as an upstream stream timeout
-  // rather than as our timeout. `retry.provider.maxRetries` is 0 because the agent-level retry already covers a failed
-  // request; both on means the same request can be retried twice over.
-  writeFileSync(
-    join(dir, "settings.json"),
-    JSON.stringify(
-      {
-        compaction: { enabled: true, reserveTokens: Math.round(settings.contextWindow * 0.19) },
-        httpIdleTimeoutMs: settings.providerTimeoutMs > 0 ? settings.providerTimeoutMs : "disabled",
-        // Five agent-level retries, stated rather than inherited: the client's default is three, and a retry policy that
-        // nobody chose is a policy nobody can reason about. Provider-level stays 0 — the agent retry covers the same
-        // failure, and both at once retries one request twice over.
-        retry: { maxRetries: 5, provider: { maxRetries: 0 } },
-      },
-      null,
-      2,
-    ),
-  );
-
-  return dir;
-}
 
 export async function run() {
   const env = process.env;
@@ -483,9 +202,6 @@ export async function run() {
   ];
 
   const started = Date.now();
-  const events = [];
-  // Written as it arrives: a run that is killed leaves the trace of how far it got, which is the run worth reading.
-  const trace = openTrace(eventsFile);
   // The child writes exactly two files: the findings it reports and the notes the budget writes. Create both here, as
   // root, because the sandbox runs without CAP_DAC_OVERRIDE and a runner temp directory owned by another uid refuses
   // newly created files. Measured: report_finding and turn-cap both failed with EACCES, and the agent spent its entire
@@ -527,87 +243,14 @@ export async function run() {
     envForChild: childEnv,
   });
 
-  await new Promise((resolve, reject) => {
-    const child = spawn("bwrap", sandboxed, {
-      stdio: ["pipe", "pipe", "pipe"],
-      env: { PATH: env.PATH || "/usr/bin:/bin" },
-    });
-    // The instructions are in the appended system prompt; this is the kickoff, not a second copy of them.
-    child.stdin.end("Review the change described in your instructions. Report what you find with report_finding.");
-    let settled = false;
-    const progress = watch({
-      onFatal: (message) => {
-        if (settled) return;
-        settled = true;
-        console.error(`[ai-review] the model call failed: ${message}`);
-        try {
-          child.kill("SIGTERM");
-        } catch {}
-        reject(new Error(`the model call failed: ${message}`));
-      },
-      onFinding: () => {}, // the report/withdraw/update lines above already say what happened
-      onTurn: (t) =>
-        console.error(
-          `[ai-review] turn ${t.turn} done at ${t.seconds}s` +
-            (t.tools.length ? ` — ${t.tools.join(", ")}` : " — no tools") +
-            ` — ${t.findings} reported`,
-        ),
-    });
-    child.stdout.on("data", (d) => {
-      events.push(d);
-      trace.write(d);
-      progress(d);
-    });
-    child.stderr.on("data", (d) => {
-      const text = String(d);
-      process.stderr.write(text);
-      // A review that cannot record a finding is not a review. An extension that fails inside the sandbox — a write the
-      // child is not permitted, most likely — has to end the run: measured, the agent spent sixty turns trying to mount
-      // and FUSE its way around the denial instead, and the run reported success with nothing to post.
-      if (/Extension error/.test(text)) {
-        try {
-          child.kill("SIGTERM");
-        } catch {}
-        reject(new Error(`an extension failed inside the sandbox: ${text.trim().split(String.fromCharCode(10))[0]}`));
-      }
-    });
-
-    // A cancelled job sends SIGTERM to this process, not to the agent under it. Without forwarding, `pi` survives as
-    // an orphan: it keeps its model request alive on a device that serves one at a time, and a cancelled job has no
-    // timeout left to end it. Measured on a real cancel — a review was still generating seven minutes after its run
-    // was marked cancelled, holding the only model slot while the replacement queued behind it.
-    let stopping = false;
-    const stop = (signal) => {
-      if (stopping) return;
-      stopping = true;
-      console.error(`[ai-review] ${signal}: stopping the agent and rendering what it had`);
-
-      // Clean up here rather than relying on a later step: a cancelled job races the runner's grace period, and the
-      // one thing that makes a killed review useful is the transcript of what it managed.
-      try {
-        child.kill(signal);
-      } catch {}
-      try {
-        writeFileSync(transcriptFile, renderTranscript(Buffer.concat(events).toString("utf8").split(String.fromCharCode(10))));
-        console.error(`[ai-review] wrote ${transcriptFile} before exit`);
-      } catch (err) {
-        console.error(`[ai-review] could not render the transcript: ${err.message}`);
-      }
-      void trace.close();
-
-      const hard = setTimeout(() => {
-        console.error("[ai-review] agent ignored the signal; killing it");
-        try {
-          child.kill("SIGKILL");
-        } catch {}
-        process.exit(143);
-      }, 10_000);
-      hard.unref();
-    };
-    for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(signal, () => stop(signal));
-
-    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`pi exited ${code}`))));
+  // The agent, inside the sandbox: the step owns the child's lifetime and returns the raw stream.
+  const events = await runAgent({
+    sandboxed,
+    eventsFile,
+    transcriptFile,
+    pathEnv: env.PATH,
   });
+
 
   await trace.close();
 

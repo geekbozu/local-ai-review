@@ -43,10 +43,11 @@ export function sandboxArgv({ argv, workspace, writable = [], envForChild = {} }
     "--ro-bind", "/", "/",
     "--bind", workspace, workspace,
     "--tmpfs", "/root",
-    // /var/run is a symlink to /run, and docker is not the only socket there: containerd, podman and cri-o all live in
-    // this tree. Hiding the directory covers the ones nobody thought of.
+    // The whole runtime tree: hiding /run covers every socket in it — containerd, podman and cri-o, not just docker — and
+    // /var/run is a symlink to /run on Debian, so binding docker.sock separately afterwards fails to create the
+    // destination ("Can't create file at /var/run/docker.sock"). The boards never showed that because their image has
+    // /var/run as a real directory.
     "--tmpfs", "/run",
-    "--ro-bind-try", "/dev/null", "/var/run/docker.sock",
     "--tmpfs", "/tmp",
     "--dev", "/dev",
     "--proc", "/proc",

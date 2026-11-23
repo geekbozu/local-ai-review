@@ -91,11 +91,16 @@ for (let run = 1; run <= runs; run += 1) {
   for (const combo of combos) {
     const work = mkdtempSync(join(tmpdir(), "eval-"));
     const started = Date.now();
-    execFileSync(
+    let failure = null;
+    try { execFileSync(
       "docker",
       [
         "run", "--rm",
         "--network", "host",
+        // bubblewrap needs mount and pid namespaces, which Docker's default capability set forbids. This is narrower than
+        // --privileged and is what makes the container run the *sandboxed* path rather than a bypass.
+        "--cap-add", "SYS_ADMIN", "--cap-add", "SYS_PTRACE",
+        "--security-opt", "seccomp=unconfined", "--security-opt", "apparmor=unconfined",
         "-v", `${repo}:/work`,
         "-v", `${here}/..:/action:ro`,
         "-v", `${work}:/out`,
@@ -115,13 +120,18 @@ for (let run = 1; run <= runs; run += 1) {
         image,
         "node", "/action/src/review.mjs",
       ],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" },
     );
+    } catch (err) {
+      // A failed run is a row, not the end of the sweep: the reason is the most useful thing a sweep can print.
+      failure = String(err.stderr || err.stdout || err.message).trim().split(String.fromCharCode(10)).slice(-4).join(" | ");
+    }
     const row = {
       at: new Date().toISOString(),
       action: execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: join(here, ".."), encoding: "utf8" }).trim(),
       combo: combo.name || "unnamed",
       run,
+      ...(failure ? { error: failure.slice(0, 400) } : {}),
       ...metrics(join(work, "events.jsonl"), join(work, "findings.jsonl"), Math.round((Date.now() - started) / 1000)),
     };
     rows.push(row);
@@ -129,7 +139,7 @@ for (let run = 1; run <= runs; run += 1) {
     console.log(
       `${row.combo.padEnd(18)} r${run}  ${String(row.turns).padStart(3)} turns  ${String(row.seconds).padStart(4)}s  ` +
         `rep ${row.reports} wd ${row.withdraws} upd ${row.updates} list ${row.lists}  ` +
-        `kept ${row.findings}  distinct ${row.distinct}/${row.calls}  ${row.answered ? "" : "NO ANSWER"}`,
+        `kept ${row.findings}  distinct ${row.distinct}/${row.calls}  ${row.error ? `ERROR ${row.error.slice(0, 90)}` : row.answered ? "" : "NO ANSWER"}`,
     );
   }
 }

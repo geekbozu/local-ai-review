@@ -103,7 +103,8 @@ Path hiding is done by the mount instead, where it cannot be talked around.
 
 - Consumers should pin a **commit SHA**. A tag can move, and a self-hosted runner caches the action under its ref,
   so what a moved tag means in practice is "a change that arrives at a time nobody chose".
-- Releases are immutable `vX.Y.Z` tags; `v1` is a moving pointer for convenience, not a guarantee.
+- Releases are immutable tags for a human reading the list; they are not what a consumer should pin, because a
+  tag can move and a self-hosted runner caches by ref. Pin a commit.
 
 ## Artifacts
 

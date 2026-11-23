@@ -15,7 +15,8 @@ Why it is shaped this way, what was measured, and which choices were close calls
 
 ## Using it
 
-Pin a tag rather than a branch (`@v1`). A review bot that changes under you is one you stop reading.
+Pin a commit. A review bot that changes under you is one you stop reading, and a tag can move — a self-hosted
+runner even caches the action under its ref, so a moved tag arrives at a time nobody chose.
 
 Two things in the consuming repo. First, `.ai-review.json` at the root — **this is the opt-in**, and without it the
 action prints a notice and exits 0, so adding the workflow everywhere is safe:

@@ -62,6 +62,41 @@ export default function (pi) {
       body: Type.String({ description: "One or two sentences: what is wrong and what it costs" }),
     }),
     async execute(_toolCallId, params) {
+      // Already in the list: measured, one run reported the same .gitignore finding five times because identity was
+      // only checked against *withdrawn* entries, so duplicates stacked up and then had to be withdrawn one by one.
+      const same = items.find((item) => identity(item) === identity(params));
+      if (same) {
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                `that is already recorded as ${same.id} (${same.severity} ${same.path}). Use update_finding if the ` +
+                `wording or the severity should change, or withdraw_finding if it should go — do not report it again.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      // Three is the cap for one file at one severity. Beyond that the model is describing one problem several ways, and
+      // each copy costs a turn now and a comment later.
+      const onPath = items.filter((item) => item.path === params.path && item.severity === params.severity);
+      if (onPath.length >= 3) {
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                `${onPath.length} findings are already recorded on ${params.path} at ${params.severity} ` +
+                `(${onPath.map((i) => i.id).join(", ")}). If this is a fourth distinct defect, say so in one entry that ` +
+                `covers it with update_finding; otherwise withdraw the weaker ones first.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
       if (withdrawn.has(identity(params))) {
         return {
           content: [

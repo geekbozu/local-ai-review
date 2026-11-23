@@ -79,38 +79,30 @@ Notes that matter more than the numbers:
   which is a server flag, not a request field. If findings start arriving malformed, suspect DRY first.
 - `repeat_penalty: 1.0` is a no-op — the probability is divided by it. Presence and frequency penalties are the levers.
 
-### `Qwen/Qwen3.8-27B` — the best model on this device, and the one to revisit
+### `zai-org/GLM-4.7-Flash` — measured, and not competitive here
 
-Dense 27B, 262k context, thinking with per-request effort (`supports_reasoning_effort: true`, template has
-`enable_thinking`, levels `low` / `medium` / `xhigh`). The strongest model here and the slowest.
+31B, 131k context, tools supported. Its card separates a general row (temp 1.0 / top-p 0.95) from the one it prescribes
+for **multi-turn agentic** work (temp 0.7 / top-p 1.0 / 16384), and a review agent is the second kind — so both were run:
 
-Measured on this device, on a **warm** model:
+| row | run 1 | run 2 | run 3 |
+|---|---|---|---|
+| card agentic (0.7 / 1.0) | 2/5 · 901 s | 1/5 · 243 s | 3/5 · 468 s |
+| card general (1.0 / 0.95) | 2/5 · 327 s | 2/5 · 260 s | 2/5 · 196 s |
+| the 80B, for comparison | 3/5 · 170 s | 3/5 · 165 s | 3/5 · 159 s |
 
-| | measured | Tiiny's published report |
-|---|---|---|
-| decode | **~13 tok/s** | 26.3 tok/s (INT4 build) |
-| prefill | **~150 tok/s** | 390 tok/s |
-| 120-token request | ~13 s | — |
+Two problems, both fatal for this use:
 
-Both roughly half of the published figures, which is what the quantisation difference would explain: their report
-specifies **INT4**, and the file here is named `model.q8_0.gguf`. So the first thing to check before blaming the model
-for its speed is which build is installed.
+- **Recall below the 80B on every row**, and never above.
+- **The agentic row is not reproducible**: the same configuration found 1, 2 and 3 of the five planted defects in 243,
+  468 and 901 seconds. The device's own defaults are stable at 2/5, so the variance is the reasoning, not the sampler.
 
-Two measurement traps, both hit on the way to those numbers:
+**It reasons whether or not it is asked to.** `/slots` reports `reasoning_format: deepseek` with a 16384-token ceiling
+being spent at ~20 tok/s, which is the whole of its 128 s per turn. The device advertises `supports_preserve_reasoning`
+but no `supports_reasoning_effort`, so pi has no per-request switch to pull, and `thinking: "off"` cannot express it.
+`modelSettings.chatTemplateKwargs: { "enable_thinking": false }` can — that row is in the queue and is the only
+configuration under which GLM is still a candidate.
 
-- **The first request after a load is cold.** A probe immediately after `launch` reported 15 tok/s prefill; the same
-  probe warm reported 152. Measure warm or you measure the load.
-- **Do not divide tokens by wall time.** That produced "9 tok/s" for this model, which included prefill *and* thinking
-  tokens and was wrong by half. Use `timings` from the response, or `/slots` while a request is in flight.
-
-Set `maxTokens` from the speed: at 13 tok/s an 8192-token ceiling is a ten-minute turn, and thinking counts against it.
-`n_ctx` is fixed at 262144 by the firmware — the `n_ctx` field on `launch` is ignored — so a long prompt on this box
-costs minutes of prefill and cannot be avoided by asking for a smaller context.
-
-Not adopted yet: it needs a cheaper build (INT4) or a much shorter review to be worth a 20-minute run, and the 80B
-answers in four.
-
-## The fixture sweep, and what it settled
+### `Qwen/Qwen3.8-27B`## The fixture sweep, and what it settled
 
 `tools/eval.mjs` runs the real review — in a container, sandbox on — against a pinned fixture with five planted defects,
 and scores each row against them by name:
@@ -153,7 +145,7 @@ Models queued for the sweep, and where each one stands:
 | model | state |
 |---|---|
 | `Qwen/Qwen3-Coder-Next` (80B, 3B active) | **measured** — 3/5 planted defects, 4 findings kept, ~2m45, reproducible ×3 |
-| `zai-org/GLM-4.7-Flash` (31B) | **in the sweep** — its card's agentic row vs its general row |
+| `zai-org/GLM-4.7-Flash` (31B) | **measured and behind**: 2/5 typically against the 80B's 3/5, 200–900 s, and not reproducible. Thinking-off row pending |
 | `google/gemma-4-26B-A4B-it` (26B) | downloading |
 | `ornith-ai/Ornith-1.5-35B-A3B-Turbo` | queued for update, then test |
 | `Qwen/Qwen3.5-*` | queued for update, then test |

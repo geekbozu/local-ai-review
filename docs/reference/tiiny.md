@@ -1,5 +1,9 @@
 # Notes on the Tiiny Pocket API
 
+**These are one device's numbers, not the action's defaults.** The action defaults assume a system that serves its own
+context at speed; on hardware like this, the values below belong in a deployment's `.ai-review.json`.
+
+
 Not ours. [`thezolon/tiiny-api-notes`](https://github.com/thezolon/tiiny-api-notes) is an unofficial map of the
 device's API, Apache-2.0, and it is better than anything else public. Fetch it rather than vendoring it:
 

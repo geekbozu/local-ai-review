@@ -1,6 +1,8 @@
 {
-  "rules": ["README.md", "docs/design.md"],
+  "rules": [
+    "README.md",
+    "docs/design.md"
+  ],
   "severityFloor": "medium",
-  "maxTurns": 30,
   "thinking": "low"
 }

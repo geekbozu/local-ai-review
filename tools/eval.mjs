@@ -6,7 +6,7 @@
 // its numbers from the event stream the review already writes.
 //
 //   node tools/eval.mjs --repo ../HonorAuditions --base origin/main \
-//     --settings tools/eval/samplers.json --runs 2 --out out/eval.jsonl
+//     --settings tools/eval/models.json --runs 2 --out out/eval.jsonl
 //
 // `samplers.json` is an array of { "name": "…", "config": { … } }: a whole .ai-review.json per combo, written into
 // the fixture the harness just built. No environment override exists in the action, and none is needed here.
@@ -48,7 +48,14 @@ for (const key of ["AI_REVIEW_BASE_URL", "AI_REVIEW_API_KEY"]) {
   }
 }
 
-const combos = JSON.parse(readFileSync(settingsFile, "utf8"));
+const all = JSON.parse(readFileSync(settingsFile, "utf8"));
+// The pile of models to test only grows, so a sweep can be narrowed: --only glm runs just those rows.
+const only = arg("only", null);
+const combos = only ? all.filter((c) => c.name.toLowerCase().includes(only.toLowerCase())) : all;
+if (!combos.length) {
+  console.error(`no combo matches --only ${only}; ${settingsFile} has: ${all.map((c) => c.name).join(", ")}`);
+  process.exit(2);
+}
 
 // A model box serves one request at a time and drops its prefix cache between unrelated requests, so two sweeps at once
 // do not halve the wall time: they corrupt both. One run of this script at a time, enforced rather than remembered.

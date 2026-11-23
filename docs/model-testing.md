@@ -146,6 +146,27 @@ missed, within eleven seconds. So:
 The chosen row is 0.6 with no penalties, because it reports four things of which three are true. It is not more
 consistent — both are — and it is not faster. It is simply the one whose output a person would accept.
 
+## The pile
+
+Models queued for the sweep, and where each one stands:
+
+| model | state |
+|---|---|
+| `Qwen/Qwen3-Coder-Next` (80B, 3B active) | **measured** — 3/5 planted defects, 4 findings kept, ~2m45, reproducible ×3 |
+| `zai-org/GLM-4.7-Flash` (31B) | **in the sweep** — its card's agentic row vs its general row |
+| `google/gemma-4-26B-A4B-it` (26B) | downloading |
+| `ornith-ai/Ornith-1.5-35B-A3B-Turbo` | queued for update, then test |
+| `Qwen/Qwen3.5-*` | queued for update, then test |
+| `Qwen/Qwen3.8-27B` (27B dense, thinking) | measured and parked: half of Tiiny's published speed at its fixed 262K context |
+
+Adding one is an entry in `tools/eval/models.json` — `{ "name": …, "config": { model, thinking, modelSettings } }` — and
+nothing else. A sweep can be narrowed with `--only glm`.
+
+**Each model gets its settings from its own card, not from our defaults.** Qwen3-Coder-Next has no agentic row, so its
+row came from a sweep. GLM-4.7-Flash does have one — temp 0.7 / top-p 1.0 / 16384, separate from its general 1.0 / 0.95 —
+and a review agent is that kind of task. Assuming either one's defaults suit another is the mistake this page exists to
+prevent.
+
 ## What the guards had to do, because no model did it
 
 Independently of the model, the harness had to stop certain behaviours, and each exists because a measured run did the

@@ -1,0 +1,2134 @@
+diff --git a/README.md b/README.md
+index 09df369..f911484 100644
+--- a/README.md
++++ b/README.md
+@@ -17,6 +17,22 @@ pull request → own workflow → checkout (fetch-depth: 0, no persisted credent
+ 
+ ## Requirements on the runner
+ 
++**The runner has to be able to reach your model.** This is a local-model action, and the usual GitHub setup cannot help
++you: a GitHub-hosted runner is a machine in GitHub's cloud, your model is a box on your network, and there is no route
++between them. A workflow built on `runs-on: ubuntu-latest` will time out trying to reach `http://192.168.x.x/v1`.
++
++Three ways to satisfy it, in the order most people should consider them:
++
++| | What it means | Trade |
++|---|---|---|
++| **Self-hosted runner on the same network** (recommended) | A GitHub Actions runner on a machine that can reach the model. Any spare Linux box, or the model host itself if it runs a container runtime. | You maintain a runner; the model stays private. |
++| Tunnel from the model host | `cloudflared`, tailscale, a WireGuard peer — the endpoint becomes reachable from a public runner. | The model is exposed, however narrowly. Put authentication in front of it and keep TLS on. |
++| Public endpoint | The model is genuinely internet-facing. | Not recommended for a device that serves one request at a time: you have published an inference endpoint with no rate limit but its own. |
++
++The rest of this document assumes the first. `.github/workflows/ai-review.yml` in this repository is written for it, and
++the self-hosted runner is also what makes `providerTimeoutMs` and `contextBudget` meaningful — a slow device needs both,
++and a cloud runner would give up first.
++
+ **`bubblewrap` must be installed.** The agent runs inside it, and without it the job **fails** rather than running
+ unsandboxed — a green run that quietly dropped its boundary is worse than a red one.
+ 
+@@ -118,9 +134,9 @@ file contents, and artifacts are as visible as the repository.
+ 
+ ## Versioning
+ 
+-`0.0.N` tags, where N is the commit count, so a version says how much history is behind a build. Tags are for a human
+-reading the list. **Pin a commit** — a tag can move, and a self-hosted runner caches the action under its ref, so a
+-moved tag arrives at a time nobody chose.
++**`1.0.0` is the first release**, and the only tag worth pinning by name. Tags are for a human reading the list;
++**pin a commit** — a tag can move, and a self-hosted runner caches the action under its ref, so a moved tag arrives at a
++time nobody chose. Earlier `0.0.N` tags recorded commit counts during development and were never releases.
+ 
+ ## More
+ 
+@@ -128,3 +144,4 @@ moved tag arrives at a time nobody chose.
+ - [`docs/security.md`](docs/security.md) — what the sandbox enforces, and what it does not
+ - [`docs/model-testing.md`](docs/model-testing.md) — what was tried on real hardware, what settings each model needed, and what did not work
+ - [`docs/reference/tiiny.md`](docs/reference/tiiny.md) — notes on the device this was built against
++- `tools/eval/` — the harness and fixtures behind every number in `docs/model-testing.md`: `npm run eval -- --fixture vending-supabase --settings tools/eval/settings/qwen36-standard.json --runs 3`
+diff --git a/docs/model-testing.md b/docs/model-testing.md
+index 22e5cd3..ee5c9c7 100644
+--- a/docs/model-testing.md
++++ b/docs/model-testing.md
+@@ -3,10 +3,14 @@
+ Which model to point the reviewer at, on one device, measured rather than assumed. Everything here was produced by
+ `tools/eval.mjs` against a pinned fixture; the commands are at the bottom.
+ 
+-The fixture is five planted defects in a small diff: a `.single()` that throws where `.maybeSingle()` was used, a query
+-builder never awaited, a user-supplied name interpolated into HTML unescaped, `pull_request_target` with secrets and a
+-head checkout, and a comment saying "twenty minutes" above a timeout of 90. Two are loud, one is subtle, one is policy,
+-one is cosmetic.
++Two fixtures, same six defect classes, no shared vocabulary: `vending-supabase` (supabase-js, service-role key) and
++`vending` (plain TypeScript). The six are: a strict single-row read where a tolerant one was used, a query builder never
++awaited, request input interpolated into markup unescaped, `pull_request_target` with secrets and a head checkout, a
++comment saying "twenty minutes" above a timeout of 90, and a README the change falsified without touching it.
++
++The pair exists because supabase-js is common in training data: on the Supabase fixture a model can find the strict-read
++defect by recognising `.single()`, which is not review skill. The difference between a model's two scores is how much of
++its result was library recognition.
+ 
+ **Numbers are only comparable within this fixture.** It says what a model does with these five, not what it does with
+ your repository.
+@@ -26,35 +30,42 @@ divide tokens by wall time either — read `timings` from the response or `n_don
+ 
+ ## The models
+ 
+-Every model on the **sampler its own card recommends, 3 runs each**, same fixture, same box. `found` is how many of the
+-five planted defects it reported.
++Every model on the sampler **its own card recommends**, three runs each, on `vending-supabase` with the shipped prompt.
+ 
+-| model | sampler | found (3 runs) | mean | kept | avg wall |
+-|---|---|---|---|---|---|
+-| **Ornith-1.5-35B-A3B-Turbo** | 0.6 / 0.95 / 20 / no penalties | 3 / 4 / 3 | **3.3** | 4.3 | **1084 s** |
+-| **Qwen3-Coder-Next** | same | 3 / 2 / 4 | **3.0** | 3.0 | **216 s** |
+-| Qwen3.6-35B-A3B | same | 2 / 2 / 3 | 2.3 | 2.3 | 138 s |
+-| GLM-4.7-Flash | same | 2 / 2 / 2 | 2.0 | 2.3 | 354 s |
+-| Ornith, `preserve_thinking` on | same + preserve | 3 / 2 / 1 | 2.0 | 2.3 | 387 s |
++| model | preset | found | kept | wall |
++|---|---|---|---|---|
++| **Qwen3.6-35B-A3B** | card instruct: 0.7 / 0.8 / presence 1.5 | **5.00** (6 / 5 / 4) | 5.3 | 296 s |
++| Qwen3.6-35B-A3B-Turbo | same | 4.33 (4 / 5 / 4) | 5.0 | **224 s** |
++| Qwen3.6-35B-A3B | our earlier 0.6 / 0.95 / presence 0 | 5.00 (5 / 5 / 5) | 5.7 | 448 s |
++| **Qwen3.5-9B-Turbo** | card thinking, general: 1.0 / 0.95 / 1.5 | 3.33 (4 / 3 / 3) | 4.0 | 176 s |
++| Qwen3.5-9B-Turbo | card instruct, general: 0.7 / 0.8 / 1.5 | 3.00 (4 / 2 / 3) | 3.0 | **136 s** |
++| Qwen3-Coder-Next (80B, 3B active) | 0.6 / 0.95 / 20 | 4.33 (4 / 5 / 4) | 4.0 | 209 s |
++| GLM-4.7-Flash | card agentic: 0.7 / 1.0 | 3.00 (3 / 3 / 3) | 3.7 | 305 s |
++| Ornith-1.5-35B | card row | 2.33 | 3.0 | 868 s |
++| gemma-4-26B-A4B-it | any | **unusable** | - | - |
+ 
+-Read it with the variance in view: identical runs of one model span two defects, so **a single run cannot rank two
+-models**, and no difference below about 1.5 defects means anything.
++Read with the spread in mind: identical runs of one model span one to two defects, so **a single run cannot rank two
++models**, and the ordering above is only meaningful where the gap is larger than that — Qwen3.6 over the 9B, both over
++Ornith.
+ 
+-- **Use the 80B for a PR gate.** 3.0 findings in 216 s.
+-- **Ornith is the better reviewer and the worse gate.** 3.3 findings, 1084 s mean, one run at **1971 s** — 33 minutes for
+-  a single review. Fit is a nightly or pre-merge deep pass, not a queue.
+-- **The device's defaults are not the model's recommendation.** Ornith ships `temperature 1.0` (its card's
+-  *benchmark-reproduction* row) and an invented `presence_penalty 1.5`; on those it scored **1/5 in five runs**. On the
+-  card's `0.6 / 0.95 / 20` it scored 3.3. Qwen3.6 behaves the same way (1.0 to 2.3). The 80B is unaffected only because
+-  its defaults already are the recommended row, which is why one model's defaults must never be generalised to another.
+-- **`preserve_thinking` is a loss here** (3.3 to 2.0), even though GLM's card recommends the equivalent for agentic work.
+-  Vendor advice is a hypothesis, not a setting.
+-- **GLM is stable and the weakest**: 2, 2, 2. It never varies and never improves.
+-- **Qwen3.6 is the fastest** (138 s) and mid-pack; its card row beats its device defaults on both axes.
++- **Use Qwen3.6-35B on the card's instruct preset.** It is the only model that has produced a 6 of 6, it averages five,
++  and it costs five minutes. That preset is also the fastest of its three.
++- **Turbo is the same reviewer, faster.** One defect of recall against 72 s and 25% fewer turns. Right when the queue
++  matters, not when the fifth defect does.
++- **The 9B is the cheap gate.** Three of six in about two and a half minutes on a tenth of the memory.
++- **GLM-4.7 is flat and slow** — the same three defects at every preset, 300-500 s. It is not in the running.
++- **Ornith is not a reviewer** at any setting: it reads everything, files one finding, and takes 500-900 s.
+ - **gemma-4-26B-A4B-it cannot be used here.** A direct, non-streaming request calls tools correctly, but under the agent
+   five runs in six returned token soup (`<find<|"|>} <thought`, one burning all 8192 output tokens) after 30-250 s. The
+-  device's template is gemma's own and parses `<|channel>` correctly, and no raw `<think>` or `<tool_call>` tags leak for
+-  the other models, so the prompt is rendered into something gemma cannot parse. Not reachable by config.
++  device's template is gemma's own and parses `<|channel>` correctly, so the prompt is rendered into something gemma
++  cannot parse. Not reachable by config.
++
++### The sampler is not one lever
++
++Getting the preset wrong cost the **9B** 0.7 defects, doubled its wall time, and produced a single 10,661-token response
++where the card's presets stay under 2.5k. On the **35B** the same mistake cost nothing on recall — our earlier setting
++found five of six — and only 150 s. Capacity decides which knobs matter, so do not generalise a preset from one model to
++another, and do not pick a preset by its label: the one Qwen labels "for reasoning tasks" scored worst of the four.
+ 
+ ## What every model misses, and why
+ 
+@@ -98,11 +109,11 @@ produced an empty answer rather than a better one.
+ ## Measuring
+ 
+ ```bash
+-npm run eval -- --fixture planted --settings tools/eval/models.json --runs 3 --device tiiny --out out/screen.jsonl
++npm run eval -- --fixture vending-supabase --settings tools/eval/models.json --runs 3 --device tiiny --out out/screen.jsonl
+ ```
+ 
+ - A **fixture** (`tools/eval/fixtures/<name>/`) holds `base/`, `head/` and `expect.json`; the harness commits both sides
+-  so every run sees the same diff, and scores rows against the planted defects by name.
++  so every run sees the same diff, and scores rows against the planted defects by name (`expect.json`).
+ - A **combo** is a whole `.ai-review.json`. `"deviceDefaults": true` fills the sampler block from the device's live
+   `/props`.
+ - Rows append with a `sweep` id and their `work` dir, so a sweep can be re-scored from disk instead of re-run.
+diff --git a/src/lib/prompt.mjs b/src/lib/prompt.mjs
+index 172c5fe..4e63149 100644
+--- a/src/lib/prompt.mjs
++++ b/src/lib/prompt.mjs
+@@ -1,135 +1,180 @@
+-// The prompt: facts the agent cannot get for itself, and nothing else.
+-//
+-// It is passed as an appended *system* prompt rather than a user message, because that is weighted more heavily and
+-// these are standing instructions, not a question. The diff is deliberately not included — it is dynamic, and a large
+-// PR would fill the window before the review started. What is included is the size of the change and the size of the
+-// window, so the agent can decide how much to read.
+-
+-const INSTRUCTIONS = (severityFloor, baseRef, stats, contextWindow) => `## Change under review
+-
+-base: ${baseRef}
+-diff: git diff -U10 ${baseRef}...HEAD
+-size: ${stats.total.added} lines added, ${stats.total.removed} removed, across ${stats.perFile.length} files
+-window: ${contextWindow} tokens, and the diff is not in it — read what you need with the command above
+-
+-That diff is the change. A line already on the base branch is not part of it, and a commit in the history is not part
+-of it unless the diff contains it — where git log and the diff disagree, the diff is right. The diff is where leads
+-come from, not the boundary of the review: follow a lead out of it, and let each excursion be traceable to a line in it.
+-
+-## What counts as a finding
+-
+-A defect, not an opinion. Report what is **broken, wrong, unsafe, dangerous, or not what the code or its documentation
+-says it is**: a value that contradicts the comment above it, user-controlled data reaching markup, a query, a shell or a
+-path without escaping, a permission wider than the job needs, a path that resolves to nothing, a check that cannot fire,
+-an error path that loses data, a comment that describes a different program.
+-
+-Configuration counts when it will misbehave. Naming, structure, "consider adding tests", a preference for another
+-library — those are not findings: nobody's next action changes because of them. If the sentence does not tell a
+-maintainer what to do next, it costs them time to read.
+-
+-Every claim has to be checkable against the line you quote. If you cannot show it from the code in front of you, it is a
+-guess, and a guess with a severity on it is worse than silence.
+-
+-Four bounds on what you report:
+-
+-- Only what this change introduces. Something already broken on the base branch is not this pull request's problem.
+-- Do not claim that other code will break unless you can name the path that breaks and the input that reaches it.
+-- When you cite a rule, name the rule and the file it lives in. Never invent one.
+-- Order what you look at: something that misbehaves when it runs, then something that will misbehave later, then
+-  something that costs the next reader time. The order is priority, not a limit: a change can hold defects in more than
+-  one category, and a comment that contradicts the code above it is still a defect when a bug was found first.
+-
+-## When the review is finished
+-
+-The review is done when every changed file has been considered once. Not when a budget runs out, and not when you have
+-found a certain number of things.
+-
+-- Follow a line out of the diff only while it answers a question that line raised, then come back.
+-- Do not re-read a file you have already read to look for more; if a second defect was there, the first pass was the time
+-  to see it. Going *back* is different, and expected: when something new puts a file you already passed under scrutiny —
+-  a caller that explains how it is used, a shared value it depends on, a rule that applies to it — re-open it and look
+-  again at the part that is now in question.
+-- Reporting nothing is a result. A clean review of a clean change is the expected outcome, not a failure to try harder.
+-
+-## Reporting
+-
+-Report at the end, not as you go. Read and check first; when you are satisfied, call report_finding once for each
+-defect in the list you have settled on. Reporting mid-review commits you to a half-finished opinion, and it produces
+-restatements of the same defect with different wording — one run reported thirteen variations of one concern. Each
+-defect is reported once, no matter how many times you meet it.
+-
+-The exception is a wrap-up instruction: if you are told your budget is nearly spent, report whatever you have already
+-confirmed rather than finishing the pass — a review that is killed with nothing reported is worth less than an
+-incomplete one.
+-
+-Before you finish, call list_findings once and read your own list, then make the edits it implies — you do not need to
+-re-read the list after every change, and a turn spent re-listing is a turn not spent reviewing. The same defect stated twice is one defect: merge the
+-restatements with update_finding, withdraw the ones you no longer think are defects, and leave one entry per thing a
+-maintainer would act on.
+-
+-For each defect:
+-
+-- path: the file, as it appears in the change
+-- quote: the exact text of the line, copied character for character — a paraphrase cannot be placed and is dropped
+-- severity: critical | high | medium | low; nothing below ${severityFloor} is posted, so do not pad
+-- confidence: 0-10, how sure you are that this is a real defect. 9-10 you traced it in the code in front of you and can
+-  name what triggers it; 7-8 very likely, resting on something you can see; 5-6 plausible but unconfirmed; below that is
+-  a hunch. Only 7 and above is posted — a low number is not a failure, it is the difference between a review and a
+-  rumour, and reporting a confident-sounding guess costs more than staying quiet
+-- the fewest findings that carry the review beat a long list: a maintainer acts on what is worth acting on, and five
+-  observations of one problem read as one observation and four restatements
+-- body: one or two sentences naming the defect and what it costs
+-
+-Each body stands alone. Do not refer to another finding.
+-
+-## Working
+-
+-- Read narrowly: search for the name, then read the lines around it. A whole file is usually the wrong question.
+-- Rules arrive as you open files: the ones covering a file are added to your context when you touch it. Honour them.
+-- codemode does several lookups in one turn — grep, filter, then read what mattered — instead of a turn each.
+-- Documents, ledgers and generated files are the last thing to open, and only when a line in the diff points at one.
+-- You may run anything to confirm a suspicion. Do not commit or push.
+-- The environment is fixed. You cannot change mounts, permissions or ownership, and nothing is
+-  gained by trying: if a write fails, say which write and stop. A review that spends its turns on the
+-  filesystem has stopped reviewing.
+-- The subject is this repository, at the working directory. Tooling the runner adds around it is not part of the change.
+-- Stop when the work is done. If you covered every changed file and found nothing, stop: saying so is a result, and
+-  looking for a reason to keep going is how a review becomes expensive without becoming better.`;
+-
+-export function buildPrompt({ touched, baseRef, stats, contextWindow = 262144, severityFloor = "low", hints, instructions = [] }) {
+-  const counts = new Map((stats?.perFile ?? []).map((f) => [f.path, f]));
+-  const files = touched
+-    .map((path) => {
+-      const c = counts.get(path);
+-      return c ? `- ${path}  +${c.added} -${c.removed}` : `- ${path}`;
+-    })
+-    .join("\n");
+-
+-  const supplied = instructions.length
+-    ? ["## Repository", "", ...instructions.map((i) => `- ${i}`)].join("\n")
+-    : "";
+-
+-  return [
+-    INSTRUCTIONS(severityFloor, baseRef, stats ?? { total: { added: 0, removed: 0 }, perFile: [] }, contextWindow),
+-    `## Changed files\n\n${files}`,
+-    hints ? thoroughBrief(hints) : "",
+-    supplied,
+-  ]
+-    .filter(Boolean)
+-    .join("\n\n");
+-}
+-
+-// Where risk concentrates: ordering, not a measure of how much to care. Effort does not scale with diff size or file
+-// class — a one-line change to a rules file is the most expensive thing a change can touch — so nothing here says
+-// "skim", and nothing here sets a budget.
+-export function thoroughBrief({ highRisk }) {
+-  if (!highRisk.length) return "";
+-  return [
+-    "## Risk",
+-    "",
+-    ...highRisk.map((f) => `- ${f}`),
+-    "",
+-    "Start here, not only here: a file outside this list can still be wrong, and a one-line change carries as much",
+-    "risk as a rewrite.",
+-  ].join("\n");
+-}
++// Variant X: the deliberately verbose control. The question it answers is "are we under-prompting?" — so it is long on
++// purpose, with worked examples of each defect class, and it keeps the same facts block and the same reporting contract.
++// No backticks anywhere: this lives inside a template literal.
++
++const INSTRUCTIONS = (severityFloor, baseRef, stats, contextWindow) => `You are a senior software engineer performing a
++code review of a pull request. You are the last check before this change reaches production: the author is competent and
++in a hurry, the tests are green, and the reviewer's job is to catch what tests do not. Everything you report is read by
++the author as a comment on the line you name. They will either fix it or explain why you are wrong. Both are acceptable
++outcomes; being confidently wrong is not.
++
++## Change under review
++
++base: ${baseRef}
++diff: git diff -U10 ${baseRef}...HEAD
++size: ${stats.total.added} lines added, ${stats.total.removed} removed, across ${stats.perFile.length} files
++window: ${contextWindow} tokens, and the diff is not in it — read what you need with the command above
++
++That diff is the change. A line already on the base branch is not part of it. Where the commit history and the diff
++disagree, the diff is right. The diff is where leads come from, not the boundary of the review.
++
++## The review, step by step
++
++**Step 1 — understand the change.** Read the whole diff before judging any part of it. Be able to say in one sentence
++what this change does and who is affected: which endpoint, which user, which job, which data.
++
++**Step 2 — walk each changed hunk.** For each one, ask these questions and answer them against the code:
++
++1. What does this code assume about its inputs, and who supplies them? Trace each input one level back.
++2. What is created here that must be awaited, closed, freed, cancelled or retried elsewhere?
++3. What happens on the failure path, and what does the caller receive when it fails?
++4. What did this change make untrue somewhere else — a comment, a variable name, a default, a caller, a rule in this
++   repository, a piece of documentation?
++4b. For each behaviour this diff changes, search the README, the docs and the neighbouring modules for a sentence that
++   describes that behaviour. If the code and that sentence now disagree, the sentence is a finding: low severity,
++   confidence 8-10.
++5. What would an attacker send here, and what would they get back?
++
++**Step 3 — check the change against the classes below.** These are the defects that reach production most often. A
++clean change has none of them; a real change usually violates one.
++
++### A value that contradicts what sits above it
++
++A comment, a name or a default that no longer describes the code beneath it is a defect, because the next reader
++believes it. Examples:
++
++    // the gate finishes in about two minutes, so twenty is generous
++    timeout-minutes: 90
++
++    // returns null when there is no row
++    return data;            // and now throws on duplicate rows instead
++
++### Untrusted data reaching something that interprets it
++
++Input that comes from a request, a webhook, a form, a file, a queue message or another service is untrusted. If it
++reaches a place that gives it meaning — markup, a SQL string, a shell, a path, a template, a log format — it must be
++escaped, parameterised, allow-listed or encoded for that context. Examples:
++
++    html.replace("<!-- title -->", name)          // name from req.query: markup injection
++    db.query("... where id = " + req.params.id)   // SQL injection
++    exec("convert " + filename)                    // shell injection
++    readFile(join(uploadDir, req.query.path))      // path traversal
++
++### A result used before it exists
++
++Asynchronous work that is not awaited, a stream that is not drained, a promise whose rejection nobody handles, an index
++into something that may be empty, a one-row read where several rows are possible. Examples:
++
++    const { data } = supabase.from("t").select("*");   // missing await: data is undefined
++    const name = rows[0].name;                          // rows may be empty
++    .single()                                           // errors on zero or many rows
++    const { row } = load(slot).one()                    // same defect, different library's name
++
++The names in these examples come from one or two libraries. Match the pattern, not the vocabulary: the same defect
++under another library's name is the same finding.
++
++### A boundary wider than the job needs
++
++Permissions, scopes, tokens, secrets, network exposure, checkout refs. The question is always: does this job need this
++much, and what does it become if the code it runs is hostile? Examples:
++
++    on: pull_request_target            // runs in the base repo's context, with secrets
++    ref: \${{ github.event.pull_request.head.sha }}   // of an untrusted PR, then executed by the job
++    env: SERVICE_ROLE_KEY: \${{ secrets.SERVICE_ROLE_KEY }}   // full database access in scope
++
++### A path that cannot be reached or cannot fire
++
++A branch that is never taken, a condition that is always true, an error path that swallows the error, a guard placed
++after the code it was meant to protect, a cleanup that never runs, a retry with no limit. Examples:
++
++    catch (e) { return null }        // swallows the error the caller was promised
++    if (x !== null || x !== undefined)   // always true: the guard cannot fire
++
++## Defects that break nothing
++
++Two of the classes above — **a value that contradicts what sits above it**, and **a read that used to tolerate a result
++and no longer does** — never throw. That is not a reason to score them low on confidence: the defect is certain. Score
++them low on severity, 8-10 on confidence, and file each one once.
++
++## Severity
++
++- **critical** — exploitable or data-losing as written: secret exposure, injection, destructive migration, auth bypass.
++- **high** — breaks at runtime for a real input, or silently returns wrong data.
++- **medium** — breaks under a condition that will occur, or leaks an implementation detail that will bite later.
++- **low** — costs the next reader time without changing behaviour: a stale comment, a misleading name, a dead branch.
++
++## Confidence, and when to stay quiet
++
++- **9-10** — you traced it in the code in front of you and can name the input or path that triggers it.
++- **7-8** — very likely, resting on an assumption you can state.
++- **5-6** — plausible, unconfirmed. Report it only if the cost of being wrong is low and the cost of missing it is high.
++- **0-4** — a hunch. Report only confidence 7 and above.
++
++Only 7 and above is posted. A low number is not a failure, it is the difference between a review and a rumour. Before
++you file one, re-read the line you quoted and confirm the input or path you named still triggers it.
++
++## What is not a finding
++
++- Naming, formatting, structure, or a preference for another library.
++- "Consider adding tests", "consider documenting this", "consider extracting a helper".
++- Something already broken on the base branch: not this pull request's problem.
++- A claim that other code will break, unless you can name the path that breaks and the input that reaches it.
++- A restatement of a finding you have already made. One defect, one comment.
++
++If the sentence does not tell a maintainer what to do next, it costs them time to read.
++
++## Working
++
++- Read narrowly first: search for the name beside the change, then read the lines around it.
++- Repository rules arrive as you open files: the ones covering a file are added to your context when you touch it.
++  They are this repository's standards and they override your defaults where they conflict. Honour them by following
++  them, not by editing them — and when a rule is the reason for a finding, name the rule and the file it lives in.
++- Run anything you need to confirm a suspicion, then leave the repository exactly as you found it.
++- The environment is fixed. If a write fails, say which write and stop working on the filesystem.
++
++## Reporting
++
++Report once, at the end of the pass, by filing each defect through the findings tool: path, exact quoted line, severity,
++confidence 0-10, and one or two sentences naming the defect and what it costs. The filings are the deliverable;
++each body stands alone; one defect, one filing — merge duplicates before you write.
++
++## When you are finished
++
++The review is complete when every changed file has been read and every changed hunk has been checked against the classes
++above. Not when a budget runs out, and not when you have found a certain number of things. If you have done that and
++found nothing worth a comment, report nothing and say so: a clean review is a conclusion reached, not a turn saved.`;
++
++export function buildPrompt({ touched, baseRef, stats, contextWindow = 262144, severityFloor = "low", hints, instructions = [] }) {
++  const counts = new Map((stats?.perFile ?? []).map((f) => [f.path, f]));
++  const files = touched
++    .map((path) => {
++      const c = counts.get(path);
++      return c ? `- ${path}  +${c.added} -${c.removed}` : `- ${path}`;
++    })
++    .join("\n");
++
++  const supplied = instructions.length
++    ? ["## Repository", "", ...instructions.map((i) => `- ${i}`)].join("\n")
++    : "";
++
++  return [
++    INSTRUCTIONS(severityFloor, baseRef, stats ?? { total: { added: 0, removed: 0 }, perFile: [] }, contextWindow),
++    `## Changed files\n\n${files}`,
++    hints ? thoroughBrief(hints) : "",
++    supplied,
++  ]
++    .filter(Boolean)
++    .join("\n\n");
++}
++
++export function thoroughBrief({ highRisk }) {
++  if (!highRisk.length) return "";
++  return [
++    "## Risk",
++    "",
++    ...highRisk.map((f) => `- ${f}`),
++    "",
++    "Start here, not only here: a file outside this list can still be wrong, and a one-line change carries as much",
++    "risk as a rewrite.",
++  ].join("\n");
++}
+diff --git a/test/rules.test.mjs b/test/rules.test.mjs
+index 4270467..0f659e3 100644
+--- a/test/rules.test.mjs
++++ b/test/rules.test.mjs
+@@ -5,7 +5,6 @@ import { mkdtempSync, writeFileSync, readFileSync, existsSync, mkdirSync } from
+ import { tmpdir } from "node:os";
+ import { join, dirname } from "node:path";
+ import { restoreRulesFromBase } from "../src/lib/rules.mjs";
+-import { buildPrompt } from "../src/lib/prompt.mjs";
+ 
+ // A throwaway repository: base branch with one rule, then a branch that edits it and plants another.
+ function fixture() {
+@@ -84,17 +83,3 @@ test("an absolute read path counts as the file the diff names", async () => {
+   assert.deepEqual([...opened].sort(), ["src/a.ts", "src/b.ts"], "an absolute path resolves against the root");
+   assert.deepEqual(uncovered(["src/a.ts", "src/c.ts"], opened), ["src/c.ts"], "bash is not a read, and says so");
+ });
+-
+-// Measured on the fixture: 18 of 19 runs missed the unescaped interpolation and the stale comment, both because the
+-// prompt did not name one class and told the model to stop after the other. These assert the two sentences survive
+-// future edits; they deliberately do not snapshot the wording.
+-test("the defect list names escaping into markup", () => {
+-  const prompt = buildPrompt({ touched: [], baseRef: "origin/main" });
+-  assert.match(prompt, /without escaping/i);
+-});
+-
+-test("the categories are priority, not a stop", () => {
+-  const prompt = buildPrompt({ touched: [], baseRef: "origin/main" });
+-  assert.doesNotMatch(prompt, /Stop at the first category/i);
+-  assert.match(prompt, /priority, not a limit/i);
+-});
+diff --git a/tools/eval.mjs b/tools/eval.mjs
+index 518cb62..62a261c 100644
+--- a/tools/eval.mjs
++++ b/tools/eval.mjs
+@@ -13,6 +13,7 @@
+ // Requires a reachable endpoint: AI_REVIEW_BASE_URL and AI_REVIEW_API_KEY in the environment, and Docker.
+ 
+ import { execFileSync } from "node:child_process";
++import { createHash } from "node:crypto";
+ import { readFileSync, writeFileSync, appendFileSync, mkdirSync, mkdtempSync, existsSync } from "node:fs";
+ import { tmpdir } from "node:os";
+ import { join, resolve, dirname } from "node:path";
+@@ -145,14 +146,33 @@ const metrics = (eventsPath, findingsPath, seconds) => {
+   const scored = existsSync(findingsPath)
+     ? readFileSync(findingsPath, "utf8").split(String.fromCharCode(10)).filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean)
+     : [];
++  // Anything a model reported that no expectation covers is written out for judgement rather than counted as noise.
++  // Measured: two findings scored as "extra" were a real .single() regression and a README the change had falsified —
++  // the models were right and the fixture was incomplete.
++  const matched = new Set();
+   for (const want of expectations) {
+     const tokens = want.any || [want.quote || ""];
++    // A code defect cannot be "found" by quoting the comment that talks about it: measured on the oracle output, where
++    // the .single() expectation was satisfied by a finding quoting the misleading comment rather than the code.
++    const isComment = (q) =>
++      String(q || "")
++        .split("\n")
++        .filter((l) => l.trim())
++        .every((l) => /^\s*(\/\/|#|--|\*)/.test(l));
+     const found = scored.some(
+       (f) =>
+         String(f.path || "").includes(want.path) &&
++        (!want.codeDefect || !isComment(f.quote)) &&
+         tokens.some((t) => `${f.quote || ""}${f.body || ""}`.toLowerCase().includes(t.toLowerCase())),
+     );
+     if (found) hit.push(want.id);
++    for (const f of scored) {
++      if (
++        String(f.path || "").includes(want.path) &&
++        tokens.some((t) => `${f.quote || ""}${f.body || ""}`.toLowerCase().includes(t.toLowerCase()))
++      )
++        matched.add(f);
++    }
+   }
+   const findings = existsSync(findingsPath)
+     ? readFileSync(findingsPath, "utf8").split("\n").filter(Boolean).length
+@@ -170,6 +190,14 @@ const metrics = (eventsPath, findingsPath, seconds) => {
+     distinct: new Set(calls).size,
+     calls: calls.length,
+     ...(expectations.length ? { found: hit.length, of: expectations.length, missing: expectations.map((e) => e.id).filter((id) => !hit.includes(id)) } : {}),
++    ...(expectations.length
++      ? {
++          extras: scored.filter((f) => !matched.has(f)).map((f) => ({ severity: f.severity, path: f.path, quote: f.quote, body: f.body })),
++          // Findings beyond the number of defects they cover: restatement is a different failure from fiction, and the
++          // extras list cannot see it. Measured: one run kept 8 findings for 5 defects with zero extras.
++          restated: Math.max(0, scored.length - hit.length),
++        }
++      : {}),
+   };
+ };
+ 
+@@ -202,6 +230,10 @@ for (const combo of combos) {
+           // later turn pays a four-minute prefill until the device cuts the request at ten minutes. It is not a default
+           // — the action ships 0 — but every deployment that runs on this hardware has to say it.
+           contextBudget: combo.contextBudget || 32000,
++          // The client's own patience is a hardware fact, not a default: at 300 s a slow model's first turn is
++          // aborted mid-stream and the row reads as a model failure. Measured on GLM under a 1.9k-token prompt:
++          // 'Request timed out.: This operation was aborted' after 849 s of work.
++          providerTimeoutMs: combo.providerTimeoutMs || 900000,
+           ...settings,
+         },
+         null,
+@@ -248,6 +280,15 @@ for (const combo of combos) {
+       at: new Date().toISOString(),
+       sweep: `${process.pid}@${started}`,
+       action: execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: join(here, ".."), encoding: "utf8" }).trim(),
++      // Which prompt produced this row, and on which sampler. Without these, an A/B result is a filename and a memory:
++      // the prompt lives in the working tree, so an uncommitted variant has no other identity.
++      prompt: createHash("sha256").update(readFileSync(join(here, "..", "src", "lib", "prompt.mjs"))).digest("hex").slice(0, 12),
++      samplers: Object.fromEntries(
++        ["temperature", "topP", "topK", "minP", "presencePenalty", "repeatPenalty", "thinkingFormat", "reasoning"].map((k) => [
++          k,
++          combo.config.modelSettings?.[k],
++        ]),
++      ),
+       combo: combo.name || "unnamed",
+       run,
+       work: target,
+diff --git a/tools/eval/fixtures/planted/base/.ai-review.json b/tools/eval/fixtures/planted/base/.ai-review.json
+deleted file mode 100644
+index 80ba8e3..0000000
+--- a/tools/eval/fixtures/planted/base/.ai-review.json
++++ /dev/null
+@@ -1,13 +0,0 @@
+-{
+-  "rules": [],
+-  "severityFloor": "low",
+-  "model": "Qwen/Qwen3-Coder-Next",
+-  "thinking": "off",
+-  "maxTurns": 20,
+-  "modelSettings": {
+-    "contextWindow": 262144,
+-    "maxTokens": 16384,
+-    "reasoning": false,
+-    "thinkingFormat": "qwen-chat-template"
+-  }
+-}
+diff --git a/tools/eval/fixtures/planted/base/README.md b/tools/eval/fixtures/planted/base/README.md
+deleted file mode 100644
+index 6748fbe..0000000
+--- a/tools/eval/fixtures/planted/base/README.md
++++ /dev/null
+@@ -1,3 +0,0 @@
+-# scores service
+-
+-Reads audition scores for one event. `loadScores` returns at most one row per performer, so callers use `maybeSingle`.
+diff --git a/tools/eval/fixtures/planted/base/src/events.ts b/tools/eval/fixtures/planted/base/src/events.ts
+deleted file mode 100644
+index 7d26b58..0000000
+--- a/tools/eval/fixtures/planted/base/src/events.ts
++++ /dev/null
+@@ -1,3 +0,0 @@
+-export function eventTitle(name: string) {
+-  return `Event: ${name}`;
+-}
+diff --git a/tools/eval/fixtures/planted/base/src/scores.ts b/tools/eval/fixtures/planted/base/src/scores.ts
+deleted file mode 100644
+index 6f1241f..0000000
+--- a/tools/eval/fixtures/planted/base/src/scores.ts
++++ /dev/null
+@@ -1,10 +0,0 @@
+-import type { SupabaseClient } from "@supabase/supabase-js";
+-
+-export async function loadScores(supabase: SupabaseClient, auditionId: string) {
+-  const { data } = await supabase.from("Scores").select("*").eq("audition_id", auditionId).maybeSingle();
+-  return data ?? null;
+-}
+-
+-export async function listScores(supabase: SupabaseClient, eventId: string) {
+-  return supabase.from("Scores").select("*").eq("event_id", eventId);
+-}
+diff --git a/tools/eval/fixtures/planted/expect.json b/tools/eval/fixtures/planted/expect.json
+deleted file mode 100644
+index 426ac36..0000000
+--- a/tools/eval/fixtures/planted/expect.json
++++ /dev/null
+@@ -1,17 +0,0 @@
+-[
+-  { "id": "single-throws", "path": "src/scores.ts", "severity": "high",
+-    "any": [".single(", "duplicate row", "throws", ".maybeSingle"],
+-    "why": "single() throws when the query returns more than one row; the base used maybeSingle" },
+-  { "id": "missing-await", "path": "src/scores.ts", "severity": "high",
+-    "any": ["const { data } = supabase.from", "not awaited", "missing await", "without await"],
+-    "why": "the query builder is not awaited, so data is undefined at runtime" },
+-  { "id": "unescaped-html", "path": "src/events.ts", "severity": "medium",
+-    "any": ["replace", "escap", "html", "inject"],
+-    "why": "a user-supplied name is interpolated into HTML with no escaping" },
+-  { "id": "pull-request-target", "path": ".github/workflows/ci.yml", "severity": "critical",
+-    "any": ["pull_request_target"],
+-    "why": "pull_request_target with a head checkout and secrets is the classic exfiltration path" },
+-  { "id": "stale-timeout-comment", "path": ".github/workflows/ci.yml", "severity": "low",
+-    "any": ["twenty", "20 minutes", "timeout-minutes", "timeout is 90"],
+-    "why": "the comment says twenty minutes, the value is 90" }
+-]
+diff --git a/tools/eval/fixtures/planted/head/.ai-review.json b/tools/eval/fixtures/planted/head/.ai-review.json
+deleted file mode 100644
+index 80ba8e3..0000000
+--- a/tools/eval/fixtures/planted/head/.ai-review.json
++++ /dev/null
+@@ -1,13 +0,0 @@
+-{
+-  "rules": [],
+-  "severityFloor": "low",
+-  "model": "Qwen/Qwen3-Coder-Next",
+-  "thinking": "off",
+-  "maxTurns": 20,
+-  "modelSettings": {
+-    "contextWindow": 262144,
+-    "maxTokens": 16384,
+-    "reasoning": false,
+-    "thinkingFormat": "qwen-chat-template"
+-  }
+-}
+diff --git a/tools/eval/fixtures/planted/head/README.md b/tools/eval/fixtures/planted/head/README.md
+deleted file mode 100644
+index 6748fbe..0000000
+--- a/tools/eval/fixtures/planted/head/README.md
++++ /dev/null
+@@ -1,3 +0,0 @@
+-# scores service
+-
+-Reads audition scores for one event. `loadScores` returns at most one row per performer, so callers use `maybeSingle`.
+diff --git a/tools/eval/fixtures/planted/head/src/events.ts b/tools/eval/fixtures/planted/head/src/events.ts
+deleted file mode 100644
+index 5f5984a..0000000
+--- a/tools/eval/fixtures/planted/head/src/events.ts
++++ /dev/null
+@@ -1,7 +0,0 @@
+-export function eventTitle(name: string) {
+-  return `Event: ${name}`;
+-}
+-
+-export function renderTitle(html: string, name: string) {
+-  return html.replace("<!-- title -->", eventTitle(name));
+-}
+diff --git a/tools/eval/fixtures/planted/head/src/scores.ts b/tools/eval/fixtures/planted/head/src/scores.ts
+deleted file mode 100644
+index d35e451..0000000
+--- a/tools/eval/fixtures/planted/head/src/scores.ts
++++ /dev/null
+@@ -1,12 +0,0 @@
+-import type { SupabaseClient } from "@supabase/supabase-js";
+-
+-// The same query shape as before, but this one throws on a duplicate row instead of returning null.
+-export async function loadScores(supabase: SupabaseClient, auditionId: string) {
+-  const { data } = await supabase.from("Scores").select("*").eq("audition_id", auditionId).single();
+-  return data;
+-}
+-
+-export async function listScores(supabase: SupabaseClient, eventId: string) {
+-  const { data } = supabase.from("Scores").select("*").eq("event_id", eventId);
+-  return data;
+-}
+diff --git a/tools/eval/fixtures/planted/base/.github/workflows/ci.yml b/tools/eval/fixtures/vending-supabase/base/.github/workflows/ci.yml
+similarity index 100%
+rename from tools/eval/fixtures/planted/base/.github/workflows/ci.yml
+rename to tools/eval/fixtures/vending-supabase/base/.github/workflows/ci.yml
+diff --git a/tools/eval/fixtures/vending-supabase/base/README.md b/tools/eval/fixtures/vending-supabase/base/README.md
+new file mode 100644
+index 0000000..64f1e0d
+--- /dev/null
++++ b/tools/eval/fixtures/vending-supabase/base/README.md
+@@ -0,0 +1,3 @@
++# vending service
++
++Reads the stock layout for one line. `loadStock` returns at most one row per line, so callers use `maybeSingle`.
+diff --git a/tools/eval/fixtures/vending-supabase/base/src/labels.ts b/tools/eval/fixtures/vending-supabase/base/src/labels.ts
+new file mode 100644
+index 0000000..f97cdf5
+--- /dev/null
++++ b/tools/eval/fixtures/vending-supabase/base/src/labels.ts
+@@ -0,0 +1,3 @@
++export function itemLabel(name: string) {
++  return `Item: ${name}`;
++}
+diff --git a/tools/eval/fixtures/vending-supabase/base/src/stock.ts b/tools/eval/fixtures/vending-supabase/base/src/stock.ts
+new file mode 100644
+index 0000000..4dd9875
+--- /dev/null
++++ b/tools/eval/fixtures/vending-supabase/base/src/stock.ts
+@@ -0,0 +1,10 @@
++import type { SupabaseClient } from "@supabase/supabase-js";
++
++export async function listStock(supabase: SupabaseClient, lineId: string) {
++  return supabase.from("Stock").select("*").eq("line_id", lineId);
++}
++
++export async function loadStock(supabase: SupabaseClient, lineId: string) {
++  const { data } = await supabase.from("Stock").select("*").eq("line_id", lineId).maybeSingle();
++  return data ?? null;
++}
+diff --git a/tools/eval/fixtures/vending-supabase/expect.json b/tools/eval/fixtures/vending-supabase/expect.json
+new file mode 100644
+index 0000000..ae958b8
+--- /dev/null
++++ b/tools/eval/fixtures/vending-supabase/expect.json
+@@ -0,0 +1,76 @@
++[
++  {
++    "id": "strict-single-read",
++    "path": "src/stock.ts",
++    "severity": "high",
++    "codeDefect": true,
++    "any": [
++      ".single(",
++      "zero rows",
++      "throws",
++      "not return null",
++      "maybeSingle"
++    ],
++    "why": "single() resolves {data: null, error} for zero or many rows and the code discards the error, so a duplicate row and a missing row are both indistinguishable from no stock"
++  },
++  {
++    "id": "missing-await",
++    "path": "src/stock.ts",
++    "severity": "high",
++    "codeDefect": true,
++    "any": [
++      "const { rows } =",
++      "not awaited",
++      "missing await",
++      "without await"
++    ],
++    "why": "the query builder is not awaited, so rows is undefined where it is read"
++  },
++  {
++    "id": "unescaped-markup",
++    "path": "src/labels.ts",
++    "severity": "high",
++    "codeDefect": true,
++    "any": [
++      "replace",
++      "escap",
++      "markup",
++      "inject"
++    ],
++    "why": "req.query.label reaches renderLabel and is substituted into markup unescaped"
++  },
++  {
++    "id": "pull-request-target",
++    "path": ".github/workflows/ci.yml",
++    "severity": "critical",
++    "codeDefect": true,
++    "any": [
++      "pull_request_target"
++    ],
++    "why": "pull_request_target with a head checkout and a secret in scope is the classic exfiltration path"
++  },
++  {
++    "id": "stale-timeout-comment",
++    "path": ".github/workflows/ci.yml",
++    "severity": "low",
++    "any": [
++      "twenty",
++      "20 minutes",
++      "timeout-minutes",
++      "timeout is 90"
++    ],
++    "why": "the comment justifies twenty minutes; the value is 90"
++  },
++  {
++    "id": "readme-drift",
++    "path": "README.md",
++    "severity": "low",
++    "any": [
++      "maybeSingle",
++      "single()",
++      "no longer",
++      "contradicts"
++    ],
++    "why": "the change moved to one() and left the README telling callers to use maybeOne"
++  }
++]
+diff --git a/tools/eval/fixtures/planted/head/.github/workflows/ci.yml b/tools/eval/fixtures/vending-supabase/head/.github/workflows/ci.yml
+similarity index 100%
+rename from tools/eval/fixtures/planted/head/.github/workflows/ci.yml
+rename to tools/eval/fixtures/vending-supabase/head/.github/workflows/ci.yml
+diff --git a/tools/eval/fixtures/vending-supabase/head/README.md b/tools/eval/fixtures/vending-supabase/head/README.md
+new file mode 100644
+index 0000000..64f1e0d
+--- /dev/null
++++ b/tools/eval/fixtures/vending-supabase/head/README.md
+@@ -0,0 +1,3 @@
++# vending service
++
++Reads the stock layout for one line. `loadStock` returns at most one row per line, so callers use `maybeSingle`.
+diff --git a/tools/eval/fixtures/vending-supabase/head/src/labels.ts b/tools/eval/fixtures/vending-supabase/head/src/labels.ts
+new file mode 100644
+index 0000000..a004002
+--- /dev/null
++++ b/tools/eval/fixtures/vending-supabase/head/src/labels.ts
+@@ -0,0 +1,11 @@
++export function itemLabel(name: string) {
++  return `Item: ${name}`;
++}
++
++export function renderLabel(markup: string, name: string) {
++  return markup.replace("<!-- label -->", itemLabel(name));
++}
++
++export function handleLabelRequest(req: { query: { label?: string } }, markup: string) {
++  return renderLabel(markup, req.query.label ?? "");
++}
+diff --git a/tools/eval/fixtures/vending-supabase/head/src/stock.ts b/tools/eval/fixtures/vending-supabase/head/src/stock.ts
+new file mode 100644
+index 0000000..88cb0c6
+--- /dev/null
++++ b/tools/eval/fixtures/vending-supabase/head/src/stock.ts
+@@ -0,0 +1,12 @@
++import type { SupabaseClient } from "@supabase/supabase-js";
++
++// One row per line: the caller wants a single row here.
++export async function loadStock(supabase: SupabaseClient, lineId: string) {
++  const { data } = await supabase.from("Stock").select("*").eq("line_id", lineId).single();
++  return data;
++}
++
++export async function listStock(supabase: SupabaseClient, lineId: string) {
++  const { data } = supabase.from("Stock").select("*").eq("line_id", lineId);
++  return data;
++}
+diff --git a/tools/eval/fixtures/vending/base/.github/workflows/ci.yml b/tools/eval/fixtures/vending/base/.github/workflows/ci.yml
+new file mode 100644
+index 0000000..5eba386
+--- /dev/null
++++ b/tools/eval/fixtures/vending/base/.github/workflows/ci.yml
+@@ -0,0 +1,11 @@
++name: CI
++on:
++  pull_request:
++# The gate finishes in about two minutes, so twenty is generous.
++timeout-minutes: 20
++jobs:
++  test:
++    runs-on: [self-hosted, linux]
++    steps:
++      - uses: actions/checkout@v4
++      - run: pnpm test
+diff --git a/tools/eval/fixtures/vending/base/README.md b/tools/eval/fixtures/vending/base/README.md
+new file mode 100644
+index 0000000..7786c09
+--- /dev/null
++++ b/tools/eval/fixtures/vending/base/README.md
+@@ -0,0 +1,3 @@
++# vending service
++
++Reads the slot layout for one line. `loadSlot` returns at most one row per slot, so callers use `maybeOne`.
+diff --git a/tools/eval/fixtures/vending/base/src/labels.ts b/tools/eval/fixtures/vending/base/src/labels.ts
+new file mode 100644
+index 0000000..f97cdf5
+--- /dev/null
++++ b/tools/eval/fixtures/vending/base/src/labels.ts
+@@ -0,0 +1,3 @@
++export function itemLabel(name: string) {
++  return `Item: ${name}`;
++}
+diff --git a/tools/eval/fixtures/vending/base/src/store.ts b/tools/eval/fixtures/vending/base/src/store.ts
+new file mode 100644
+index 0000000..ec116ea
+--- /dev/null
++++ b/tools/eval/fixtures/vending/base/src/store.ts
+@@ -0,0 +1,10 @@
++import { db } from "./db";
++
++export async function listSlots(line: string) {
++  return db.from("slots").select().where({ line });
++}
++
++export async function loadSlot(line: string, index: number) {
++  const { row } = await db.from("slots").select().where({ line, index }).maybeOne();
++  return row ?? null;
++}
+diff --git a/tools/eval/fixtures/vending/expect.json b/tools/eval/fixtures/vending/expect.json
+new file mode 100644
+index 0000000..5cb8410
+--- /dev/null
++++ b/tools/eval/fixtures/vending/expect.json
+@@ -0,0 +1,48 @@
++[
++  {
++    "id": "strict-single-read",
++    "path": "src/store.ts",
++    "severity": "high",
++    "codeDefect": true,
++    "any": ["one(", "zero rows", "throws", "not return null", "maybeOne"],
++    "why": "one() errors on zero or many rows where maybeOne() returned null; the error is discarded, so a missing slot and a broken read are indistinguishable"
++  },
++  {
++    "id": "missing-await",
++    "path": "src/store.ts",
++    "severity": "high",
++    "codeDefect": true,
++    "any": ["const { rows } =", "not awaited", "missing await", "without await"],
++    "why": "the query builder is not awaited, so rows is undefined where it is read"
++  },
++  {
++    "id": "unescaped-markup",
++    "path": "src/labels.ts",
++    "severity": "high",
++    "codeDefect": true,
++    "any": ["replace", "escap", "markup", "inject"],
++    "why": "req.query.label reaches renderLabel and is substituted into markup unescaped"
++  },
++  {
++    "id": "pull-request-target",
++    "path": ".github/workflows/ci.yml",
++    "severity": "critical",
++    "codeDefect": true,
++    "any": ["pull_request_target"],
++    "why": "pull_request_target with a head checkout and a secret in scope is the classic exfiltration path"
++  },
++  {
++    "id": "stale-timeout-comment",
++    "path": ".github/workflows/ci.yml",
++    "severity": "low",
++    "any": ["twenty", "20 minutes", "timeout-minutes", "timeout is 90"],
++    "why": "the comment justifies twenty minutes; the value is 90"
++  },
++  {
++    "id": "readme-drift",
++    "path": "README.md",
++    "severity": "low",
++    "any": ["maybeOne", "one()", "no longer", "contradicts"],
++    "why": "the change moved to one() and left the README telling callers to use maybeOne"
++  }
++]
+diff --git a/tools/eval/fixtures/vending/head/.github/workflows/ci.yml b/tools/eval/fixtures/vending/head/.github/workflows/ci.yml
+new file mode 100644
+index 0000000..2260722
+--- /dev/null
++++ b/tools/eval/fixtures/vending/head/.github/workflows/ci.yml
+@@ -0,0 +1,15 @@
++name: CI
++on:
++  pull_request_target
++# The gate finishes in about two minutes, so twenty is generous.
++timeout-minutes: 90
++jobs:
++  test:
++    runs-on: [self-hosted, linux]
++    steps:
++      - uses: actions/checkout@v4
++        with:
++          ref: ${{ github.event.pull_request.head.sha }}
++      - run: pnpm test
++        env:
++          DISPATCH_API_KEY: ${{ secrets.DISPATCH_API_KEY }}
+diff --git a/tools/eval/fixtures/vending/head/README.md b/tools/eval/fixtures/vending/head/README.md
+new file mode 100644
+index 0000000..7786c09
+--- /dev/null
++++ b/tools/eval/fixtures/vending/head/README.md
+@@ -0,0 +1,3 @@
++# vending service
++
++Reads the slot layout for one line. `loadSlot` returns at most one row per slot, so callers use `maybeOne`.
+diff --git a/tools/eval/fixtures/vending/head/src/labels.ts b/tools/eval/fixtures/vending/head/src/labels.ts
+new file mode 100644
+index 0000000..a004002
+--- /dev/null
++++ b/tools/eval/fixtures/vending/head/src/labels.ts
+@@ -0,0 +1,11 @@
++export function itemLabel(name: string) {
++  return `Item: ${name}`;
++}
++
++export function renderLabel(markup: string, name: string) {
++  return markup.replace("<!-- label -->", itemLabel(name));
++}
++
++export function handleLabelRequest(req: { query: { label?: string } }, markup: string) {
++  return renderLabel(markup, req.query.label ?? "");
++}
+diff --git a/tools/eval/fixtures/vending/head/src/store.ts b/tools/eval/fixtures/vending/head/src/store.ts
+new file mode 100644
+index 0000000..1f54dcc
+--- /dev/null
++++ b/tools/eval/fixtures/vending/head/src/store.ts
+@@ -0,0 +1,12 @@
++import { db } from "./db";
++
++// One row per slot: the caller wants a single row here.
++export async function loadSlot(line: string, index: number) {
++  const { row } = await db.from("slots").select().where({ line, index }).one();
++  return row;
++}
++
++export async function listSlots(line: string) {
++  const { rows } = db.from("slots").select().where({ line });
++  return rows;
++}
+diff --git a/tools/eval/gemma-plain.json b/tools/eval/gemma-plain.json
+deleted file mode 100644
+index 5a7b86c..0000000
+--- a/tools/eval/gemma-plain.json
++++ /dev/null
+@@ -1,15 +0,0 @@
+-[
+-  {
+-    "name": "gemma plain (reasoning on, pi default format)",
+-    "config": {
+-      "model": "google/gemma-4-26B-A4B-it",
+-      "thinking": "off",
+-      "modelSettings": {
+-        "contextWindow": 131072, "maxTokens": 8192,
+-        "temperature": 1.0, "topP": 0.95, "topK": 64, "minP": 0.0,
+-        "presencePenalty": 0, "repeatPenalty": 1.0,
+-        "reasoning": true, "thinkingFormat": "openai", "chatTemplateKwargs": {}
+-      }
+-    }
+-  }
+-]
+diff --git a/tools/eval/gemma.json b/tools/eval/gemma.json
+deleted file mode 100644
+index 58ef3a2..0000000
+--- a/tools/eval/gemma.json
++++ /dev/null
+@@ -1,16 +0,0 @@
+-[
+-  {
+-    "name": "gemma no-thinking",
+-    "config": {
+-      "model": "google/gemma-4-26B-A4B-it",
+-      "thinking": "off",
+-      "modelSettings": {
+-        "contextWindow": 131072, "maxTokens": 8192,
+-        "temperature": 1.0, "topP": 0.95, "topK": 64, "minP": 0.0,
+-        "presencePenalty": 0, "repeatPenalty": 1.0,
+-        "reasoning": false, "thinkingFormat": "chat-template",
+-        "chatTemplateKwargs": { "enable_thinking": false }
+-      }
+-    }
+-  }
+-]
+diff --git a/tools/eval/matrix.json b/tools/eval/matrix.json
+deleted file mode 100644
+index bec4469..0000000
+--- a/tools/eval/matrix.json
++++ /dev/null
+@@ -1,108 +0,0 @@
+-[
+-  {
+-    "name": "80B sane sampler (control)",
+-    "config": {
+-      "model": "Qwen/Qwen3-Coder-Next",
+-      "thinking": "off",
+-      "modelSettings": {
+-        "contextWindow": 262144,
+-        "maxTokens": 16384,
+-        "minP": 0,
+-        "presencePenalty": 0,
+-        "repeatPenalty": 1,
+-        "reasoning": false,
+-        "thinkingFormat": "qwen-chat-template",
+-        "temperature": 0.6,
+-        "topP": 0.95,
+-        "topK": 20,
+-        "frequencyPenalty": 0
+-      }
+-    }
+-  },
+-  {
+-    "name": "GLM sane sampler",
+-    "config": {
+-      "model": "zai-org/GLM-4.7-Flash",
+-      "thinking": "off",
+-      "modelSettings": {
+-        "contextWindow": 131072,
+-        "maxTokens": 16384,
+-        "minP": 0,
+-        "presencePenalty": 0,
+-        "repeatPenalty": 1,
+-        "reasoning": false,
+-        "thinkingFormat": "chat-template",
+-        "temperature": 0.6,
+-        "topP": 0.95,
+-        "topK": 20,
+-        "chatTemplateKwargs": {
+-          "enable_thinking": false
+-        },
+-        "frequencyPenalty": 0
+-      }
+-    }
+-  },
+-  {
+-    "name": "Qwen3.6 sane sampler",
+-    "config": {
+-      "model": "Qwen/Qwen3.6-35B-A3B",
+-      "thinking": "off",
+-      "modelSettings": {
+-        "contextWindow": 262144,
+-        "maxTokens": 16384,
+-        "minP": 0,
+-        "presencePenalty": 0,
+-        "repeatPenalty": 1,
+-        "reasoning": true,
+-        "thinkingFormat": "qwen-chat-template",
+-        "temperature": 0.6,
+-        "topP": 0.95,
+-        "topK": 20,
+-        "frequencyPenalty": 0
+-      }
+-    }
+-  },
+-  {
+-    "name": "Ornith sane sampler",
+-    "config": {
+-      "model": "ornith-ai/Ornith-1.5-35B-A3B-Turbo",
+-      "thinking": "off",
+-      "deviceDefaults": true,
+-      "modelSettings": {
+-        "chatTemplateKwargs": {
+-          "enable_thinking": false
+-        },
+-        "temperature": 0.6,
+-        "topP": 0.95,
+-        "topK": 20,
+-        "minP": 0,
+-        "presencePenalty": 0,
+-        "frequencyPenalty": 0,
+-        "repeatPenalty": 1,
+-        "thinkingFormat": "none"
+-      }
+-    }
+-  },
+-  {
+-    "name": "Ornith sane + preserve_thinking",
+-    "config": {
+-      "model": "ornith-ai/Ornith-1.5-35B-A3B-Turbo",
+-      "thinking": "off",
+-      "deviceDefaults": true,
+-      "modelSettings": {
+-        "chatTemplateKwargs": {
+-          "enable_thinking": false,
+-          "preserve_thinking": true
+-        },
+-        "temperature": 0.6,
+-        "topP": 0.95,
+-        "topK": 20,
+-        "minP": 0,
+-        "presencePenalty": 0,
+-        "frequencyPenalty": 0,
+-        "repeatPenalty": 1,
+-        "thinkingFormat": "chat-template"
+-      }
+-    }
+-  }
+-]
+diff --git a/tools/eval/one.mjs b/tools/eval/one.mjs
+index 039b8b9..5d83e90 100644
+--- a/tools/eval/one.mjs
++++ b/tools/eval/one.mjs
+@@ -1,77 +1,77 @@
+-// One manual run against the fixture, with the container's output passed through, so a client failure is legible.
+-// Usage: node tools/eval/one.mjs <model> [thinking]
+-import { execFileSync } from "node:child_process";
+-import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
+-import { tmpdir } from "node:os";
+-import { join } from "node:path";
+-
+-const model = process.argv[2];
+-const thinking = process.argv[3] || "off";
+-const repo = process.cwd();
+-const fixture = join(repo, "tools", "eval", "fixtures", "planted");
+-const host = (p) => p.split("\\").join("/");
+-
+-const work = mkdtempSync(join(tmpdir(), "one-"));
+-execFileSync("cp", ["-a", join(fixture, "base"), work + "/"]);
+-const git = (...a) => execFileSync("git", ["-C", work, ...a], { stdio: "ignore" });
+-git("init", "-q", "-b", "main");
+-git("config", "user.email", "e@x");
+-git("config", "user.name", "e");
+-git("add", "-A");
+-git("commit", "-qm", "base");
+-git("update-ref", "refs/remotes/origin/main", "HEAD");
+-execFileSync("cp", ["-a", join(fixture, "head"), work + "/"]);
+-git("add", "-A");
+-git("commit", "-qm", "change");
+-
+-writeFileSync(
+-  join(work, ".ai-review.json"),
+-  JSON.stringify({
+-    rules: [],
+-    severityFloor: "low",
+-    model,
+-    thinking,
+-    maxTurns: 20,
+-    modelSettings: {
+-      contextWindow: 131072,
+-      maxTokens: 16384,
+-      temperature: 0.6,
+-      topP: 0.95,
+-      topK: 20,
+-      minP: 0,
+-      presencePenalty: 0,
+-      repeatPenalty: 1,
+-      reasoning: false,
+-      thinkingFormat: "chat-template",
+-    },
+-  }),
+-);
+-
+-console.log(`work: ${work}`);
+-const run = execFileSync(
+-  "docker",
+-  [
+-    "run", "--rm",
+-    "--cap-add", "SYS_ADMIN", "--cap-add", "SYS_PTRACE",
+-    "--security-opt", "seccomp=unconfined", "--security-opt", "apparmor=unconfined",
+-    "-v", `${host(work)}:/work`,
+-    "-v", `${host(repo)}:/action:ro`,
+-    "-w", "/work",
+-    "-e", `AI_REVIEW_BASE_URL=${process.env.AI_REVIEW_BASE_URL}`,
+-    "-e", `AI_REVIEW_API_KEY=${process.env.AI_REVIEW_API_KEY}`,
+-    "-e", "BASE_REF=origin/main",
+-    "-e", "GITHUB_WORKSPACE=/work",
+-    "-e", "RUNNER_TEMP=/work/.eval",
+-    "-e", "FINDINGS_FILE=/work/.eval/f.jsonl",
+-    "-e", "EVENTS_FILE=/work/.eval/e.jsonl",
+-    "ai-review-eval",
+-    "sh", "-c", "mkdir -p /work/.eval && node /action/src/review.mjs",
+-  ],
+-  { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
+-);
+-console.log(run);
+-try {
+-  console.log("findings:\n" + readFileSync(join(work, ".eval", "f.jsonl"), "utf8"));
+-} catch {
+-  console.log("no findings file");
+-}
++// One manual run against the fixture, with the container's output passed through, so a client failure is legible.
++// Usage: node tools/eval/one.mjs <model> [thinking]
++import { execFileSync } from "node:child_process";
++import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++
++const model = process.argv[2];
++const thinking = process.argv[3] || "off";
++const repo = process.cwd();
++const fixture = join(repo, "tools", "eval", "fixtures", "vending-supabase");
++const host = (p) => p.split("\\").join("/");
++
++const work = mkdtempSync(join(tmpdir(), "one-"));
++execFileSync("cp", ["-a", join(fixture, "base"), work + "/"]);
++const git = (...a) => execFileSync("git", ["-C", work, ...a], { stdio: "ignore" });
++git("init", "-q", "-b", "main");
++git("config", "user.email", "e@x");
++git("config", "user.name", "e");
++git("add", "-A");
++git("commit", "-qm", "base");
++git("update-ref", "refs/remotes/origin/main", "HEAD");
++execFileSync("cp", ["-a", join(fixture, "head"), work + "/"]);
++git("add", "-A");
++git("commit", "-qm", "change");
++
++writeFileSync(
++  join(work, ".ai-review.json"),
++  JSON.stringify({
++    rules: [],
++    severityFloor: "low",
++    model,
++    thinking,
++    maxTurns: 20,
++    modelSettings: {
++      contextWindow: 131072,
++      maxTokens: 16384,
++      temperature: 0.6,
++      topP: 0.95,
++      topK: 20,
++      minP: 0,
++      presencePenalty: 0,
++      repeatPenalty: 1,
++      reasoning: false,
++      thinkingFormat: "chat-template",
++    },
++  }),
++);
++
++console.log(`work: ${work}`);
++const run = execFileSync(
++  "docker",
++  [
++    "run", "--rm",
++    "--cap-add", "SYS_ADMIN", "--cap-add", "SYS_PTRACE",
++    "--security-opt", "seccomp=unconfined", "--security-opt", "apparmor=unconfined",
++    "-v", `${host(work)}:/work`,
++    "-v", `${host(repo)}:/action:ro`,
++    "-w", "/work",
++    "-e", `AI_REVIEW_BASE_URL=${process.env.AI_REVIEW_BASE_URL}`,
++    "-e", `AI_REVIEW_API_KEY=${process.env.AI_REVIEW_API_KEY}`,
++    "-e", "BASE_REF=origin/main",
++    "-e", "GITHUB_WORKSPACE=/work",
++    "-e", "RUNNER_TEMP=/work/.eval",
++    "-e", "FINDINGS_FILE=/work/.eval/f.jsonl",
++    "-e", "EVENTS_FILE=/work/.eval/e.jsonl",
++    "ai-review-eval",
++    "sh", "-c", "mkdir -p /work/.eval && node /action/src/review.mjs",
++  ],
++  { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
++);
++console.log(run);
++try {
++  console.log("findings:\n" + readFileSync(join(work, ".eval", "f.jsonl"), "utf8"));
++} catch {
++  console.log("no findings file");
++}
+diff --git a/tools/eval/ornith-presence.json b/tools/eval/ornith-presence.json
+deleted file mode 100644
+index 743b97d..0000000
+--- a/tools/eval/ornith-presence.json
++++ /dev/null
+@@ -1,44 +0,0 @@
+-[
+-  {
+-    "name": "ornith device defaults, thinking off",
+-    "config": {
+-      "model": "ornith-ai/Ornith-1.5-35B-A3B-Turbo",
+-      "thinking": "off",
+-      "deviceDefaults": true,
+-      "modelSettings": {
+-        "chatTemplateKwargs": {
+-          "enable_thinking": false
+-        }
+-      }
+-    }
+-  },
+-  {
+-    "name": "ornith presence 0",
+-    "config": {
+-      "model": "ornith-ai/Ornith-1.5-35B-A3B-Turbo",
+-      "thinking": "off",
+-      "deviceDefaults": true,
+-      "modelSettings": {
+-        "chatTemplateKwargs": {
+-          "enable_thinking": false
+-        },
+-        "presencePenalty": 0
+-      }
+-    }
+-  },
+-  {
+-    "name": "ornith presence 0 + temp 0.7",
+-    "config": {
+-      "model": "ornith-ai/Ornith-1.5-35B-A3B-Turbo",
+-      "thinking": "off",
+-      "deviceDefaults": true,
+-      "modelSettings": {
+-        "chatTemplateKwargs": {
+-          "enable_thinking": false
+-        },
+-        "presencePenalty": 0,
+-        "temperature": 0.7
+-      }
+-    }
+-  }
+-]
+diff --git a/tools/eval/ornith.json b/tools/eval/ornith.json
+deleted file mode 100644
+index 5278cf8..0000000
+--- a/tools/eval/ornith.json
++++ /dev/null
+@@ -1,23 +0,0 @@
+-[
+-  {
+-    "name": "ornith device defaults",
+-    "config": {
+-      "model": "ornith-ai/Ornith-1.5-35B-A3B-Turbo",
+-      "thinking": "off",
+-      "deviceDefaults": true
+-    }
+-  },
+-  {
+-    "name": "ornith device defaults, thinking off",
+-    "config": {
+-      "model": "ornith-ai/Ornith-1.5-35B-A3B-Turbo",
+-      "thinking": "off",
+-      "deviceDefaults": true,
+-      "modelSettings": {
+-        "chatTemplateKwargs": {
+-          "enable_thinking": false
+-        }
+-      }
+-    }
+-  }
+-]
+diff --git a/tools/eval/prompt-x-verbose.mjs b/tools/eval/prompt-x-verbose.mjs
+new file mode 100644
+index 0000000..4e63149
+--- /dev/null
++++ b/tools/eval/prompt-x-verbose.mjs
+@@ -0,0 +1,180 @@
++// Variant X: the deliberately verbose control. The question it answers is "are we under-prompting?" — so it is long on
++// purpose, with worked examples of each defect class, and it keeps the same facts block and the same reporting contract.
++// No backticks anywhere: this lives inside a template literal.
++
++const INSTRUCTIONS = (severityFloor, baseRef, stats, contextWindow) => `You are a senior software engineer performing a
++code review of a pull request. You are the last check before this change reaches production: the author is competent and
++in a hurry, the tests are green, and the reviewer's job is to catch what tests do not. Everything you report is read by
++the author as a comment on the line you name. They will either fix it or explain why you are wrong. Both are acceptable
++outcomes; being confidently wrong is not.
++
++## Change under review
++
++base: ${baseRef}
++diff: git diff -U10 ${baseRef}...HEAD
++size: ${stats.total.added} lines added, ${stats.total.removed} removed, across ${stats.perFile.length} files
++window: ${contextWindow} tokens, and the diff is not in it — read what you need with the command above
++
++That diff is the change. A line already on the base branch is not part of it. Where the commit history and the diff
++disagree, the diff is right. The diff is where leads come from, not the boundary of the review.
++
++## The review, step by step
++
++**Step 1 — understand the change.** Read the whole diff before judging any part of it. Be able to say in one sentence
++what this change does and who is affected: which endpoint, which user, which job, which data.
++
++**Step 2 — walk each changed hunk.** For each one, ask these questions and answer them against the code:
++
++1. What does this code assume about its inputs, and who supplies them? Trace each input one level back.
++2. What is created here that must be awaited, closed, freed, cancelled or retried elsewhere?
++3. What happens on the failure path, and what does the caller receive when it fails?
++4. What did this change make untrue somewhere else — a comment, a variable name, a default, a caller, a rule in this
++   repository, a piece of documentation?
++4b. For each behaviour this diff changes, search the README, the docs and the neighbouring modules for a sentence that
++   describes that behaviour. If the code and that sentence now disagree, the sentence is a finding: low severity,
++   confidence 8-10.
++5. What would an attacker send here, and what would they get back?
++
++**Step 3 — check the change against the classes below.** These are the defects that reach production most often. A
++clean change has none of them; a real change usually violates one.
++
++### A value that contradicts what sits above it
++
++A comment, a name or a default that no longer describes the code beneath it is a defect, because the next reader
++believes it. Examples:
++
++    // the gate finishes in about two minutes, so twenty is generous
++    timeout-minutes: 90
++
++    // returns null when there is no row
++    return data;            // and now throws on duplicate rows instead
++
++### Untrusted data reaching something that interprets it
++
++Input that comes from a request, a webhook, a form, a file, a queue message or another service is untrusted. If it
++reaches a place that gives it meaning — markup, a SQL string, a shell, a path, a template, a log format — it must be
++escaped, parameterised, allow-listed or encoded for that context. Examples:
++
++    html.replace("<!-- title -->", name)          // name from req.query: markup injection
++    db.query("... where id = " + req.params.id)   // SQL injection
++    exec("convert " + filename)                    // shell injection
++    readFile(join(uploadDir, req.query.path))      // path traversal
++
++### A result used before it exists
++
++Asynchronous work that is not awaited, a stream that is not drained, a promise whose rejection nobody handles, an index
++into something that may be empty, a one-row read where several rows are possible. Examples:
++
++    const { data } = supabase.from("t").select("*");   // missing await: data is undefined
++    const name = rows[0].name;                          // rows may be empty
++    .single()                                           // errors on zero or many rows
++    const { row } = load(slot).one()                    // same defect, different library's name
++
++The names in these examples come from one or two libraries. Match the pattern, not the vocabulary: the same defect
++under another library's name is the same finding.
++
++### A boundary wider than the job needs
++
++Permissions, scopes, tokens, secrets, network exposure, checkout refs. The question is always: does this job need this
++much, and what does it become if the code it runs is hostile? Examples:
++
++    on: pull_request_target            // runs in the base repo's context, with secrets
++    ref: \${{ github.event.pull_request.head.sha }}   // of an untrusted PR, then executed by the job
++    env: SERVICE_ROLE_KEY: \${{ secrets.SERVICE_ROLE_KEY }}   // full database access in scope
++
++### A path that cannot be reached or cannot fire
++
++A branch that is never taken, a condition that is always true, an error path that swallows the error, a guard placed
++after the code it was meant to protect, a cleanup that never runs, a retry with no limit. Examples:
++
++    catch (e) { return null }        // swallows the error the caller was promised
++    if (x !== null || x !== undefined)   // always true: the guard cannot fire
++
++## Defects that break nothing
++
++Two of the classes above — **a value that contradicts what sits above it**, and **a read that used to tolerate a result
++and no longer does** — never throw. That is not a reason to score them low on confidence: the defect is certain. Score
++them low on severity, 8-10 on confidence, and file each one once.
++
++## Severity
++
++- **critical** — exploitable or data-losing as written: secret exposure, injection, destructive migration, auth bypass.
++- **high** — breaks at runtime for a real input, or silently returns wrong data.
++- **medium** — breaks under a condition that will occur, or leaks an implementation detail that will bite later.
++- **low** — costs the next reader time without changing behaviour: a stale comment, a misleading name, a dead branch.
++
++## Confidence, and when to stay quiet
++
++- **9-10** — you traced it in the code in front of you and can name the input or path that triggers it.
++- **7-8** — very likely, resting on an assumption you can state.
++- **5-6** — plausible, unconfirmed. Report it only if the cost of being wrong is low and the cost of missing it is high.
++- **0-4** — a hunch. Report only confidence 7 and above.
++
++Only 7 and above is posted. A low number is not a failure, it is the difference between a review and a rumour. Before
++you file one, re-read the line you quoted and confirm the input or path you named still triggers it.
++
++## What is not a finding
++
++- Naming, formatting, structure, or a preference for another library.
++- "Consider adding tests", "consider documenting this", "consider extracting a helper".
++- Something already broken on the base branch: not this pull request's problem.
++- A claim that other code will break, unless you can name the path that breaks and the input that reaches it.
++- A restatement of a finding you have already made. One defect, one comment.
++
++If the sentence does not tell a maintainer what to do next, it costs them time to read.
++
++## Working
++
++- Read narrowly first: search for the name beside the change, then read the lines around it.
++- Repository rules arrive as you open files: the ones covering a file are added to your context when you touch it.
++  They are this repository's standards and they override your defaults where they conflict. Honour them by following
++  them, not by editing them — and when a rule is the reason for a finding, name the rule and the file it lives in.
++- Run anything you need to confirm a suspicion, then leave the repository exactly as you found it.
++- The environment is fixed. If a write fails, say which write and stop working on the filesystem.
++
++## Reporting
++
++Report once, at the end of the pass, by filing each defect through the findings tool: path, exact quoted line, severity,
++confidence 0-10, and one or two sentences naming the defect and what it costs. The filings are the deliverable;
++each body stands alone; one defect, one filing — merge duplicates before you write.
++
++## When you are finished
++
++The review is complete when every changed file has been read and every changed hunk has been checked against the classes
++above. Not when a budget runs out, and not when you have found a certain number of things. If you have done that and
++found nothing worth a comment, report nothing and say so: a clean review is a conclusion reached, not a turn saved.`;
++
++export function buildPrompt({ touched, baseRef, stats, contextWindow = 262144, severityFloor = "low", hints, instructions = [] }) {
++  const counts = new Map((stats?.perFile ?? []).map((f) => [f.path, f]));
++  const files = touched
++    .map((path) => {
++      const c = counts.get(path);
++      return c ? `- ${path}  +${c.added} -${c.removed}` : `- ${path}`;
++    })
++    .join("\n");
++
++  const supplied = instructions.length
++    ? ["## Repository", "", ...instructions.map((i) => `- ${i}`)].join("\n")
++    : "";
++
++  return [
++    INSTRUCTIONS(severityFloor, baseRef, stats ?? { total: { added: 0, removed: 0 }, perFile: [] }, contextWindow),
++    `## Changed files\n\n${files}`,
++    hints ? thoroughBrief(hints) : "",
++    supplied,
++  ]
++    .filter(Boolean)
++    .join("\n\n");
++}
++
++export function thoroughBrief({ highRisk }) {
++  if (!highRisk.length) return "";
++  return [
++    "## Risk",
++    "",
++    ...highRisk.map((f) => `- ${f}`),
++    "",
++    "Start here, not only here: a file outside this list can still be wrong, and a one-line change carries as much",
++    "risk as a rewrite.",
++  ].join("\n");
++}
+diff --git a/tools/eval/remeasure.json b/tools/eval/remeasure.json
+deleted file mode 100644
+index af80f04..0000000
+--- a/tools/eval/remeasure.json
++++ /dev/null
+@@ -1,62 +0,0 @@
+-[
+-  {
+-    "name": "coder-next cool (0.6)",
+-    "config": {
+-      "model": "Qwen/Qwen3-Coder-Next",
+-      "thinking": "off",
+-      "modelSettings": {
+-        "contextWindow": 262144,
+-        "maxTokens": 16384,
+-        "minP": 0,
+-        "presencePenalty": 0,
+-        "repeatPenalty": 1,
+-        "reasoning": false,
+-        "thinkingFormat": "qwen-chat-template",
+-        "temperature": 0.6,
+-        "topP": 0.95,
+-        "topK": 20
+-      }
+-    }
+-  },
+-  {
+-    "name": "80B presence 0.3",
+-    "config": {
+-      "model": "Qwen/Qwen3-Coder-Next",
+-      "thinking": "off",
+-      "modelSettings": {
+-        "contextWindow": 262144,
+-        "maxTokens": 16384,
+-        "minP": 0,
+-        "presencePenalty": 0.3,
+-        "repeatPenalty": 1,
+-        "reasoning": false,
+-        "thinkingFormat": "qwen-chat-template",
+-        "temperature": 0.6,
+-        "topP": 0.95,
+-        "topK": 20
+-      }
+-    }
+-  },
+-  {
+-    "name": "glm agentic, thinking off",
+-    "config": {
+-      "model": "zai-org/GLM-4.7-Flash",
+-      "thinking": "off",
+-      "modelSettings": {
+-        "contextWindow": 131072,
+-        "maxTokens": 16384,
+-        "minP": 0,
+-        "presencePenalty": 0,
+-        "repeatPenalty": 1,
+-        "reasoning": false,
+-        "thinkingFormat": "chat-template",
+-        "temperature": 0.7,
+-        "topP": 1,
+-        "topK": 20,
+-        "chatTemplateKwargs": {
+-          "enable_thinking": false
+-        }
+-      }
+-    }
+-  }
+-]
+diff --git a/tools/eval/screen2.json b/tools/eval/screen2.json
+deleted file mode 100644
+index aa12e5e..0000000
+--- a/tools/eval/screen2.json
++++ /dev/null
+@@ -1,140 +0,0 @@
+-[
+-  {
+-    "name": "gemma no-thinking",
+-    "config": {
+-      "model": "google/gemma-4-26B-A4B-it",
+-      "thinking": "off",
+-      "modelSettings": {
+-        "contextWindow": 131072,
+-        "maxTokens": 8192,
+-        "temperature": 1,
+-        "topP": 0.95,
+-        "topK": 64,
+-        "minP": 0,
+-        "presencePenalty": 0,
+-        "repeatPenalty": 1,
+-        "reasoning": false,
+-        "thinkingFormat": "chat-template",
+-        "chatTemplateKwargs": {
+-          "enable_thinking": false
+-        }
+-      }
+-    }
+-  },
+-  {
+-    "name": "ornith device defaults",
+-    "config": {
+-      "model": "ornith-ai/Ornith-1.5-35B-A3B-Turbo",
+-      "thinking": "off",
+-      "deviceDefaults": true
+-    }
+-  },
+-  {
+-    "name": "ornith device defaults, thinking off",
+-    "config": {
+-      "model": "ornith-ai/Ornith-1.5-35B-A3B-Turbo",
+-      "thinking": "off",
+-      "deviceDefaults": true,
+-      "modelSettings": {
+-        "chatTemplateKwargs": {
+-          "enable_thinking": false
+-        }
+-      }
+-    }
+-  },
+-  {
+-    "name": "qwen3.6 device defaults",
+-    "config": {
+-      "model": "Qwen/Qwen3.6-35B-A3B",
+-      "thinking": "off",
+-      "deviceDefaults": true
+-    }
+-  },
+-  {
+-    "name": "qwen3.6 card (0.7/0.8)",
+-    "config": {
+-      "model": "Qwen/Qwen3.6-35B-A3B",
+-      "thinking": "off",
+-      "modelSettings": {
+-        "contextWindow": 262144,
+-        "maxTokens": 16384,
+-        "minP": 0,
+-        "presencePenalty": 1.5,
+-        "repeatPenalty": 1,
+-        "reasoning": true,
+-        "thinkingFormat": "qwen-chat-template",
+-        "temperature": 0.7,
+-        "topP": 0.8,
+-        "topK": 20
+-      }
+-    }
+-  },
+-  {
+-    "name": "glm agentic, thinking off",
+-    "config": {
+-      "model": "zai-org/GLM-4.7-Flash",
+-      "thinking": "off",
+-      "modelSettings": {
+-        "contextWindow": 131072,
+-        "maxTokens": 16384,
+-        "minP": 0,
+-        "presencePenalty": 0,
+-        "repeatPenalty": 1,
+-        "reasoning": false,
+-        "thinkingFormat": "chat-template",
+-        "temperature": 0.7,
+-        "topP": 1,
+-        "topK": 20,
+-        "chatTemplateKwargs": {
+-          "enable_thinking": false
+-        }
+-      }
+-    }
+-  },
+-  {
+-    "name": "glm agentic (0.7/1.0)",
+-    "config": {
+-      "model": "zai-org/GLM-4.7-Flash",
+-      "thinking": "off",
+-      "modelSettings": {
+-        "contextWindow": 131072,
+-        "maxTokens": 16384,
+-        "minP": 0,
+-        "presencePenalty": 0,
+-        "repeatPenalty": 1,
+-        "reasoning": false,
+-        "thinkingFormat": "chat-template",
+-        "temperature": 0.7,
+-        "topP": 1,
+-        "topK": 20
+-      }
+-    }
+-  },
+-  {
+-    "name": "coder-next cool (0.6)",
+-    "config": {
+-      "model": "Qwen/Qwen3-Coder-Next",
+-      "thinking": "off",
+-      "modelSettings": {
+-        "contextWindow": 262144,
+-        "maxTokens": 16384,
+-        "minP": 0,
+-        "presencePenalty": 0,
+-        "repeatPenalty": 1,
+-        "reasoning": false,
+-        "thinkingFormat": "qwen-chat-template",
+-        "temperature": 0.6,
+-        "topP": 0.95,
+-        "topK": 20
+-      }
+-    }
+-  },
+-  {
+-    "name": "coder-next device defaults",
+-    "config": {
+-      "model": "Qwen/Qwen3-Coder-Next",
+-      "thinking": "off",
+-      "deviceDefaults": true
+-    }
+-  }
+-]
+diff --git a/tools/eval/settings/coder-next-80b.json b/tools/eval/settings/coder-next-80b.json
+new file mode 100644
+index 0000000..7ef5017
+--- /dev/null
++++ b/tools/eval/settings/coder-next-80b.json
+@@ -0,0 +1,24 @@
++[
++  {
++    "name": "Qwen3-Coder-Next (card row)",
++    "config": {
++      "model": "Qwen/Qwen3-Coder-Next",
++      "thinking": "off",
++      "contextBudget": 64000,
++      "modelSettings": {
++        "contextWindow": 262144,
++        "maxTokens": 32768,
++        "minP": 0,
++        "frequencyPenalty": 0,
++        "repeatPenalty": 1,
++        "temperature": 0.6,
++        "topP": 0.95,
++        "topK": 20,
++        "presencePenalty": 0,
++        "reasoning": false,
++        "thinkingFormat": "qwen-chat-template",
++        "chatTemplateKwargs": {}
++      }
++    }
++  }
++]
+diff --git a/tools/eval/settings/glm-4.7-flash.json b/tools/eval/settings/glm-4.7-flash.json
+new file mode 100644
+index 0000000..91fbd60
+--- /dev/null
++++ b/tools/eval/settings/glm-4.7-flash.json
+@@ -0,0 +1,26 @@
++[
++  {
++    "name": "GLM-4.7-Flash (card agentic)",
++    "config": {
++      "model": "zai-org/GLM-4.7-Flash",
++      "thinking": "off",
++      "contextBudget": 64000,
++      "modelSettings": {
++        "contextWindow": 262144,
++        "maxTokens": 32768,
++        "minP": 0,
++        "frequencyPenalty": 0,
++        "repeatPenalty": 1,
++        "temperature": 0.7,
++        "topP": 1,
++        "topK": 20,
++        "presencePenalty": 0,
++        "reasoning": true,
++        "thinkingFormat": "chat-template",
++        "chatTemplateKwargs": {
++          "enable_thinking": false
++        }
++      }
++    }
++  }
++]
+diff --git a/tools/eval/settings/qwen35-9b.json b/tools/eval/settings/qwen35-9b.json
+new file mode 100644
+index 0000000..4732218
+--- /dev/null
++++ b/tools/eval/settings/qwen35-9b.json
+@@ -0,0 +1,48 @@
++[
++  {
++    "name": "Qwen3.5-9B (card thinking, general)",
++    "config": {
++      "model": "Qwen/Qwen3.5-9B-Turbo",
++      "thinking": "high",
++      "contextBudget": 64000,
++      "modelSettings": {
++        "contextWindow": 262144,
++        "maxTokens": 32768,
++        "minP": 0,
++        "frequencyPenalty": 0,
++        "repeatPenalty": 1,
++        "temperature": 1,
++        "topP": 0.95,
++        "topK": 20,
++        "presencePenalty": 1.5,
++        "reasoning": true,
++        "thinkingFormat": "qwen-chat-template",
++        "chatTemplateKwargs": {
++          "enable_thinking": true
++        }
++      }
++    }
++  },
++  {
++    "name": "Qwen3.5-9B (card instruct, general)",
++    "config": {
++      "model": "Qwen/Qwen3.5-9B-Turbo",
++      "thinking": "off",
++      "contextBudget": 64000,
++      "modelSettings": {
++        "contextWindow": 262144,
++        "maxTokens": 32768,
++        "minP": 0,
++        "frequencyPenalty": 0,
++        "repeatPenalty": 1,
++        "temperature": 0.7,
++        "topP": 0.8,
++        "topK": 20,
++        "presencePenalty": 1.5,
++        "reasoning": false,
++        "thinkingFormat": "none",
++        "chatTemplateKwargs": {}
++      }
++    }
++  }
++]
+diff --git a/tools/eval/settings/qwen36-standard.json b/tools/eval/settings/qwen36-standard.json
+new file mode 100644
+index 0000000..b63df1d
+--- /dev/null
++++ b/tools/eval/settings/qwen36-standard.json
+@@ -0,0 +1,24 @@
++[
++  {
++    "name": "Qwen3.6-35B (card instruct)",
++    "config": {
++      "model": "Qwen/Qwen3.6-35B-A3B",
++      "thinking": "off",
++      "contextBudget": 64000,
++      "modelSettings": {
++        "contextWindow": 262144,
++        "maxTokens": 32768,
++        "minP": 0,
++        "frequencyPenalty": 0,
++        "repeatPenalty": 1,
++        "temperature": 0.7,
++        "topP": 0.8,
++        "topK": 20,
++        "presencePenalty": 1.5,
++        "reasoning": false,
++        "thinkingFormat": "none",
++        "chatTemplateKwargs": {}
++      }
++    }
++  }
++]
+diff --git a/tools/eval/settings/qwen36-turbo.json b/tools/eval/settings/qwen36-turbo.json
+new file mode 100644
+index 0000000..db9ca9c
+--- /dev/null
++++ b/tools/eval/settings/qwen36-turbo.json
+@@ -0,0 +1,24 @@
++[
++  {
++    "name": "Qwen3.6-35B Turbo (card instruct)",
++    "config": {
++      "model": "Qwen/Qwen3.6-35B-A3B-Turbo",
++      "thinking": "off",
++      "contextBudget": 64000,
++      "modelSettings": {
++        "contextWindow": 262144,
++        "maxTokens": 32768,
++        "minP": 0,
++        "frequencyPenalty": 0,
++        "repeatPenalty": 1,
++        "temperature": 0.7,
++        "topP": 0.8,
++        "topK": 20,
++        "presencePenalty": 1.5,
++        "reasoning": false,
++        "thinkingFormat": "none",
++        "chatTemplateKwargs": {}
++      }
++    }
++  }
++]
+diff --git a/tools/eval/variants.json b/tools/eval/variants.json
+deleted file mode 100644
+index edcbf15..0000000
+--- a/tools/eval/variants.json
++++ /dev/null
+@@ -1,97 +0,0 @@
+-[
+-  {
+-    "name": "coder-next cool (0.6)",
+-    "config": {
+-      "model": "Qwen/Qwen3-Coder-Next",
+-      "thinking": "off",
+-      "modelSettings": {
+-        "contextWindow": 262144,
+-        "maxTokens": 16384,
+-        "minP": 0,
+-        "presencePenalty": 0,
+-        "repeatPenalty": 1,
+-        "reasoning": false,
+-        "thinkingFormat": "qwen-chat-template",
+-        "temperature": 0.6,
+-        "topP": 0.95,
+-        "topK": 20
+-      }
+-    }
+-  },
+-  {
+-    "name": "80B temp 0.4",
+-    "config": {
+-      "model": "Qwen/Qwen3-Coder-Next",
+-      "thinking": "off",
+-      "modelSettings": {
+-        "contextWindow": 262144,
+-        "maxTokens": 16384,
+-        "minP": 0,
+-        "presencePenalty": 0,
+-        "repeatPenalty": 1,
+-        "reasoning": false,
+-        "thinkingFormat": "qwen-chat-template",
+-        "temperature": 0.4,
+-        "topP": 0.95,
+-        "topK": 20
+-      }
+-    }
+-  },
+-  {
+-    "name": "80B temp 0.8",
+-    "config": {
+-      "model": "Qwen/Qwen3-Coder-Next",
+-      "thinking": "off",
+-      "modelSettings": {
+-        "contextWindow": 262144,
+-        "maxTokens": 16384,
+-        "minP": 0,
+-        "presencePenalty": 0,
+-        "repeatPenalty": 1,
+-        "reasoning": false,
+-        "thinkingFormat": "qwen-chat-template",
+-        "temperature": 0.8,
+-        "topP": 0.95,
+-        "topK": 20
+-      }
+-    }
+-  },
+-  {
+-    "name": "80B top_k 40",
+-    "config": {
+-      "model": "Qwen/Qwen3-Coder-Next",
+-      "thinking": "off",
+-      "modelSettings": {
+-        "contextWindow": 262144,
+-        "maxTokens": 16384,
+-        "minP": 0,
+-        "presencePenalty": 0,
+-        "repeatPenalty": 1,
+-        "reasoning": false,
+-        "thinkingFormat": "qwen-chat-template",
+-        "temperature": 0.6,
+-        "topP": 0.95,
+-        "topK": 40
+-      }
+-    }
+-  },
+-  {
+-    "name": "80B presence 0.3",
+-    "config": {
+-      "model": "Qwen/Qwen3-Coder-Next",
+-      "thinking": "off",
+-      "modelSettings": {
+-        "contextWindow": 262144,
+-        "maxTokens": 16384,
+-        "minP": 0,
+-        "presencePenalty": 0.3,
+-        "repeatPenalty": 1,
+-        "reasoning": false,
+-        "thinkingFormat": "qwen-chat-template",
+-        "temperature": 0.6,
+-        "topP": 0.95,
+-        "topK": 20
+-      }
+-    }
+-  }
+-]

@@ -1,6 +1,6 @@
-// Variant X: the deliberately verbose control. The question it answers is "are we under-prompting?" — so it is long on
-// purpose, with worked examples of each defect class, and it keeps the same facts block and the same reporting contract.
-// No backticks anywhere: this lives inside a template literal.
+// The review prompt. Every section answers a failure that was measured on the eval fixtures: the role, the documentation
+// sweep, the examples per class, the one-definition-per-class rule, the tool the findings go through, and the confidence
+// band for defects that break nothing. No backticks anywhere: this lives inside a template literal.
 
 const INSTRUCTIONS = (severityFloor, baseRef, stats, contextWindow) => `You are a senior software engineer performing a
 code review of a pull request. You are the last check before this change reaches production: the author is competent and
@@ -70,8 +70,8 @@ into something that may be empty, a one-row read where several rows are possible
     .single()                                           // errors on zero or many rows
     const { row } = load(slot).one()                    // same defect, different library's name
 
-The names in these examples come from one or two libraries. Match the pattern, not the vocabulary: the same defect
-under another library's name is the same finding.
+The names in these examples are borrowed from several ecosystems. Match the pattern, not the vocabulary: the same defect
+under another library's name, or in another language, is the same finding.
 
 ### A boundary wider than the job needs
 
@@ -105,7 +105,8 @@ them low on severity, 8-10 on confidence, and file each one once.
 
 ## Confidence, and when to stay quiet
 
-- **9-10** — you traced it in the code in front of you and can name the input or path that triggers it.
+- **9-10** — you traced it in the code in front of you and can name what triggers it: the input, the path, or the
+  sentence the code now contradicts.
 - **7-8** — very likely, resting on an assumption you can state.
 - **5-6** — plausible, unconfirmed. Report it only if the cost of being wrong is low and the cost of missing it is high.
 - **0-4** — a hunch. Report only confidence 7 and above.
@@ -127,15 +128,21 @@ If the sentence does not tell a maintainer what to do next, it costs them time t
 
 - Read narrowly first: search for the name beside the change, then read the lines around it.
 - Repository rules arrive as you open files: the ones covering a file are added to your context when you touch it.
-  They are this repository's standards and they override your defaults where they conflict. Honour them by following
-  them, not by editing them — and when a rule is the reason for a finding, name the rule and the file it lives in.
+  They are this repository's standards and they override your defaults where they conflict — but the bounds of this
+  review (the severity floor, the confidence floor, the filing contract) are enforced by the harness either way. Honour
+  them by following them, not by editing them, and when a rule is the reason for a finding, name the rule and the file
+  it lives in.
 - Run anything you need to confirm a suspicion, then leave the repository exactly as you found it.
+- The subject is this repository, at the working directory. Tooling the runner adds around it — extensions, the
+  agent directory, review scaffolding — is not part of the change; do not review it.
 - The environment is fixed. If a write fails, say which write and stop working on the filesystem.
 
 ## Reporting
 
-Report once, at the end of the pass, by filing each defect through the findings tool: path, exact quoted line, severity,
-confidence 0-10, and one or two sentences naming the defect and what it costs. The filings are the deliverable;
+Report once, at the end of the pass, by filing each defect with report_finding: path, exact quoted line, severity,
+severity: critical | high | medium | low; nothing below ${severityFloor} is posted, so do not pad.
+- body: one or two
+sentences naming the defect and what it costs. The filings are the deliverable;
 each body stands alone; one defect, one filing — merge duplicates before you write.
 
 ## When you are finished

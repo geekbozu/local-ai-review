@@ -31,6 +31,11 @@ const fixture = arg("fixture", null);
 const base = arg("base", "origin/main");
 const settingsFile = arg("settings");
 const runs = Number(arg("runs", "1"));
+// A sweep of zero runs exits 0 having measured nothing, and "NaN" (from --runs abc) silently does the same.
+if (!Number.isInteger(runs) || runs < 1) {
+  console.error("--runs must be an integer of 1 or more");
+  process.exit(2);
+}
 const out = resolve(arg("out", "out/eval.jsonl"));
 const image = arg("image", "ai-review-eval");
 
@@ -146,37 +151,39 @@ const metrics = (eventsPath, findingsPath, seconds) => {
   const scored = existsSync(findingsPath)
     ? readFileSync(findingsPath, "utf8").split(String.fromCharCode(10)).filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean)
     : [];
-  // Anything a model reported that no expectation covers is written out for judgement rather than counted as noise.
-  // Measured: two findings scored as "extra" were a real .single() regression and a README the change had falsified —
-  // the models were right and the fixture was incomplete.
-  const matched = new Set();
-  for (const want of expectations) {
+
+  // One predicate decides whether a finding answers an expectation, and both `hit` and the extras set use it. They used
+  // to disagree: extras ignored the comment-quote rule, so a finding that quoted the comment describing a defect instead
+  // of the code counted toward neither list and vanished from every metric but the raw count.
+  //
+  // A code defect cannot be "found" by quoting the comment that talks about it — measured on the oracle output, where the
+  // .single() expectation was satisfied by a finding quoting the misleading comment rather than the code.
+  const isComment = (q) =>
+    String(q || "")
+      .split("\n")
+      .filter((l) => l.trim())
+      .every((l) => /^\s*(\/\/|#|--|\*)/.test(l));
+  const answers = (want, f) => {
     const tokens = want.any || [want.quote || ""];
-    // A code defect cannot be "found" by quoting the comment that talks about it: measured on the oracle output, where
-    // the .single() expectation was satisfied by a finding quoting the misleading comment rather than the code.
-    const isComment = (q) =>
-      String(q || "")
-        .split("\n")
-        .filter((l) => l.trim())
-        .every((l) => /^\s*(\/\/|#|--|\*)/.test(l));
-    const found = scored.some(
-      (f) =>
-        String(f.path || "").includes(want.path) &&
-        (!want.codeDefect || !isComment(f.quote)) &&
-        tokens.some((t) => `${f.quote || ""}${f.body || ""}`.toLowerCase().includes(t.toLowerCase())),
+    return (
+      String(f.path || "").includes(want.path) &&
+      (!want.codeDefect || !isComment(f.quote)) &&
+      tokens.some((t) => `${f.quote || ""}${f.body || ""}`.toLowerCase().includes(t.toLowerCase()))
     );
-    if (found) hit.push(want.id);
-    for (const f of scored) {
-      if (
-        String(f.path || "").includes(want.path) &&
-        tokens.some((t) => `${f.quote || ""}${f.body || ""}`.toLowerCase().includes(t.toLowerCase()))
-      )
-        matched.add(f);
-    }
+  };
+
+  const matched = new Set();
+  let duplicates = 0;
+  for (const want of expectations) {
+    const claimed = scored.filter((f) => answers(want, f));
+    if (claimed.length) hit.push(want.id);
+    for (const f of claimed) matched.add(f);
+    // Findings beyond the first that answers one expectation are restatements of it. Counting extras here instead (as
+    // scored.length - hit.length did) labelled fiction as restatement and missed a finding that answered two
+    // expectations on one path.
+    duplicates += Math.max(0, claimed.length - 1);
   }
-  const findings = existsSync(findingsPath)
-    ? readFileSync(findingsPath, "utf8").split("\n").filter(Boolean).length
-    : 0;
+
   return {
     seconds,
     turns,
@@ -195,7 +202,7 @@ const metrics = (eventsPath, findingsPath, seconds) => {
           extras: scored.filter((f) => !matched.has(f)).map((f) => ({ severity: f.severity, path: f.path, quote: f.quote, body: f.body })),
           // Findings beyond the number of defects they cover: restatement is a different failure from fiction, and the
           // extras list cannot see it. Measured: one run kept 8 findings for 5 defects with zero extras.
-          restated: Math.max(0, scored.length - hit.length),
+          restated: duplicates,
         }
       : {}),
   };
@@ -283,6 +290,7 @@ for (const combo of combos) {
       // Which prompt produced this row, and on which sampler. Without these, an A/B result is a filename and a memory:
       // the prompt lives in the working tree, so an uncommitted variant has no other identity.
       prompt: createHash("sha256").update(readFileSync(join(here, "..", "src", "lib", "prompt.mjs"))).digest("hex").slice(0, 12),
+      limits: { providerTimeoutMs, contextBudget: combo.contextBudget || 32000, maxTurns: combo.maxTurns || 20 },
       samplers: Object.fromEntries(
         ["temperature", "topP", "topK", "minP", "presencePenalty", "repeatPenalty", "thinkingFormat", "reasoning"].map((k) => [
           k,

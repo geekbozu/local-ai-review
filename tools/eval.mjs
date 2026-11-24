@@ -188,7 +188,8 @@ const metrics = (eventsPath, findingsPath, seconds) => {
     seconds,
     turns,
     answered,
-    findings,
+    // What the model actually filed, as opposed to what it claimed in prose.
+    findings: scored.length,
     reports: tools.report_finding || 0,
     withdraws: tools.withdraw_finding || 0,
     updates: tools.update_finding || 0,
@@ -226,6 +227,9 @@ for (const combo of combos) {
     const settings = combo.config.deviceDefaults
       ? { ...combo.config, modelSettings: { ...(await box.defaults()), ...(combo.config.modelSettings || {}) }, deviceDefaults: undefined }
       : combo.config;
+    // Read once: the config file and the row must describe the same client patience.
+    const providerTimeoutMs = combo.providerTimeoutMs || 900000;
+
     writeFileSync(
       join(target, ".ai-review.json"),
       JSON.stringify(
@@ -240,7 +244,7 @@ for (const combo of combos) {
           // The client's own patience is a hardware fact, not a default: at 300 s a slow model's first turn is
           // aborted mid-stream and the row reads as a model failure. Measured on GLM under a 1.9k-token prompt:
           // 'Request timed out.: This operation was aborted' after 849 s of work.
-          providerTimeoutMs: combo.providerTimeoutMs || 900000,
+          providerTimeoutMs,
           ...settings,
         },
         null,

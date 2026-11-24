@@ -109,6 +109,14 @@ each setting bought are in [`docs/model-testing.md`](../model-testing.md).
 | `ornith-ai/Ornith-1.5-35B-A3B-Turbo` | not a reviewer: reads everything, files one finding, 500-900 s |
 | `google/gemma-4-26B-A4B-it` | **unusable here**: token soup under the agent, though a direct request calls tools correctly |
 
+Measured on llama-swap rather than the Pocket, same fixture and prompt, two runs each:
+
+| model | note |
+|---|---|
+| `LFM2.5-2.6B` | two of six and three of six in ~84 s: the cheapest gate measured, and it drives the tools correctly |
+| `LFM2-1.2B-tool` | 0 of 6 in 34 s. It calls tools and finds nothing, exactly as its card warns |
+| `LFM2.5-8B-A1B` | **fails to run**: it answers with a JSON plan in prose (`analysis`, `plan`) where a tool call belongs, so the run fails having read nothing. A serving/format problem, not a prompt one |
+
 ### General models: none measured yet
 
 This table is deliberately empty. A general-purpose chat model is not the same instrument as a code-tuned one, and the

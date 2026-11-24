@@ -8,7 +8,7 @@ import { join } from "node:path";
 const model = process.argv[2];
 const thinking = process.argv[3] || "off";
 const repo = process.cwd();
-const fixture = join(repo, "tools", "eval", "fixtures", "planted");
+const fixture = join(repo, "tools", "eval", "fixtures", "vending-supabase");
 const host = (p) => p.split("\\").join("/");
 
 const work = mkdtempSync(join(tmpdir(), "one-"));

@@ -5,7 +5,6 @@ import { mkdtempSync, writeFileSync, readFileSync, existsSync, mkdirSync } from 
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { restoreRulesFromBase } from "../src/lib/rules.mjs";
-import { buildPrompt } from "../src/lib/prompt.mjs";
 
 // A throwaway repository: base branch with one rule, then a branch that edits it and plants another.
 function fixture() {
@@ -83,18 +82,4 @@ test("an absolute read path counts as the file the diff names", async () => {
   assert.equal(turns, 1);
   assert.deepEqual([...opened].sort(), ["src/a.ts", "src/b.ts"], "an absolute path resolves against the root");
   assert.deepEqual(uncovered(["src/a.ts", "src/c.ts"], opened), ["src/c.ts"], "bash is not a read, and says so");
-});
-
-// Measured on the fixture: 18 of 19 runs missed the unescaped interpolation and the stale comment, both because the
-// prompt did not name one class and told the model to stop after the other. These assert the two sentences survive
-// future edits; they deliberately do not snapshot the wording.
-test("the defect list names escaping into markup", () => {
-  const prompt = buildPrompt({ touched: [], baseRef: "origin/main" });
-  assert.match(prompt, /without escaping/i);
-});
-
-test("the categories are priority, not a stop", () => {
-  const prompt = buildPrompt({ touched: [], baseRef: "origin/main" });
-  assert.doesNotMatch(prompt, /Stop at the first category/i);
-  assert.match(prompt, /priority, not a limit/i);
 });

@@ -1,0 +1,15 @@
+name: CI
+on:
+  pull_request_target
+# The gate finishes in about two minutes, so twenty is generous.
+timeout-minutes: 90
+jobs:
+  test:
+    runs-on: [self-hosted, linux]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - run: pnpm test
+        env:
+          DISPATCH_API_KEY: ${{ secrets.DISPATCH_API_KEY }}

@@ -3,10 +3,14 @@
 Which model to point the reviewer at, on one device, measured rather than assumed. Everything here was produced by
 `tools/eval.mjs` against a pinned fixture; the commands are at the bottom.
 
-The fixture is five planted defects in a small diff: a `.single()` that throws where `.maybeSingle()` was used, a query
-builder never awaited, a user-supplied name interpolated into HTML unescaped, `pull_request_target` with secrets and a
-head checkout, and a comment saying "twenty minutes" above a timeout of 90. Two are loud, one is subtle, one is policy,
-one is cosmetic.
+Two fixtures, same six defect classes, no shared vocabulary: `vending-supabase` (supabase-js, service-role key) and
+`vending` (plain TypeScript). The six are: a strict single-row read where a tolerant one was used, a query builder never
+awaited, request input interpolated into markup unescaped, `pull_request_target` with secrets and a head checkout, a
+comment saying "twenty minutes" above a timeout of 90, and a README the change falsified without touching it.
+
+The pair exists because supabase-js is common in training data: on the Supabase fixture a model can find the strict-read
+defect by recognising `.single()`, which is not review skill. The difference between a model's two scores is how much of
+its result was library recognition.
 
 **Numbers are only comparable within this fixture.** It says what a model does with these five, not what it does with
 your repository.
@@ -26,35 +30,42 @@ divide tokens by wall time either — read `timings` from the response or `n_don
 
 ## The models
 
-Every model on the **sampler its own card recommends, 3 runs each**, same fixture, same box. `found` is how many of the
-five planted defects it reported.
+Every model on the sampler **its own card recommends**, three runs each, on `vending-supabase` with the shipped prompt.
 
-| model | sampler | found (3 runs) | mean | kept | avg wall |
-|---|---|---|---|---|---|
-| **Ornith-1.5-35B-A3B-Turbo** | 0.6 / 0.95 / 20 / no penalties | 3 / 4 / 3 | **3.3** | 4.3 | **1084 s** |
-| **Qwen3-Coder-Next** | same | 3 / 2 / 4 | **3.0** | 3.0 | **216 s** |
-| Qwen3.6-35B-A3B | same | 2 / 2 / 3 | 2.3 | 2.3 | 138 s |
-| GLM-4.7-Flash | same | 2 / 2 / 2 | 2.0 | 2.3 | 354 s |
-| Ornith, `preserve_thinking` on | same + preserve | 3 / 2 / 1 | 2.0 | 2.3 | 387 s |
+| model | preset | found | kept | wall |
+|---|---|---|---|---|
+| **Qwen3.6-35B-A3B** | card instruct: 0.7 / 0.8 / presence 1.5 | **5.00** (6 / 5 / 4) | 5.3 | 296 s |
+| Qwen3.6-35B-A3B-Turbo | same | 4.33 (4 / 5 / 4) | 5.0 | **224 s** |
+| Qwen3.6-35B-A3B | our earlier 0.6 / 0.95 / presence 0 | 5.00 (5 / 5 / 5) | 5.7 | 448 s |
+| **Qwen3.5-9B-Turbo** | card thinking, general: 1.0 / 0.95 / 1.5 | 3.33 (4 / 3 / 3) | 4.0 | 176 s |
+| Qwen3.5-9B-Turbo | card instruct, general: 0.7 / 0.8 / 1.5 | 3.00 (4 / 2 / 3) | 3.0 | **136 s** |
+| Qwen3-Coder-Next (80B, 3B active) | 0.6 / 0.95 / 20 | 4.33 (4 / 5 / 4) | 4.0 | 209 s |
+| GLM-4.7-Flash | card agentic: 0.7 / 1.0 | 3.00 (3 / 3 / 3) | 3.7 | 305 s |
+| Ornith-1.5-35B | card row | 2.33 | 3.0 | 868 s |
+| gemma-4-26B-A4B-it | any | **unusable** | - | - |
 
-Read it with the variance in view: identical runs of one model span two defects, so **a single run cannot rank two
-models**, and no difference below about 1.5 defects means anything.
+Read with the spread in mind: identical runs of one model span one to two defects, so **a single run cannot rank two
+models**, and the ordering above is only meaningful where the gap is larger than that — Qwen3.6 over the 9B, both over
+Ornith.
 
-- **Use the 80B for a PR gate.** 3.0 findings in 216 s.
-- **Ornith is the better reviewer and the worse gate.** 3.3 findings, 1084 s mean, one run at **1971 s** — 33 minutes for
-  a single review. Fit is a nightly or pre-merge deep pass, not a queue.
-- **The device's defaults are not the model's recommendation.** Ornith ships `temperature 1.0` (its card's
-  *benchmark-reproduction* row) and an invented `presence_penalty 1.5`; on those it scored **1/5 in five runs**. On the
-  card's `0.6 / 0.95 / 20` it scored 3.3. Qwen3.6 behaves the same way (1.0 to 2.3). The 80B is unaffected only because
-  its defaults already are the recommended row, which is why one model's defaults must never be generalised to another.
-- **`preserve_thinking` is a loss here** (3.3 to 2.0), even though GLM's card recommends the equivalent for agentic work.
-  Vendor advice is a hypothesis, not a setting.
-- **GLM is stable and the weakest**: 2, 2, 2. It never varies and never improves.
-- **Qwen3.6 is the fastest** (138 s) and mid-pack; its card row beats its device defaults on both axes.
+- **Use Qwen3.6-35B on the card's instruct preset.** It is the only model that has produced a 6 of 6, it averages five,
+  and it costs five minutes. That preset is also the fastest of its three.
+- **Turbo is the same reviewer, faster.** One defect of recall against 72 s and 25% fewer turns. Right when the queue
+  matters, not when the fifth defect does.
+- **The 9B is the cheap gate.** Three of six in about two and a half minutes on a tenth of the memory.
+- **GLM-4.7 is flat and slow** — the same three defects at every preset, 300-500 s. It is not in the running.
+- **Ornith is not a reviewer** at any setting: it reads everything, files one finding, and takes 500-900 s.
 - **gemma-4-26B-A4B-it cannot be used here.** A direct, non-streaming request calls tools correctly, but under the agent
   five runs in six returned token soup (`<find<|"|>} <thought`, one burning all 8192 output tokens) after 30-250 s. The
-  device's template is gemma's own and parses `<|channel>` correctly, and no raw `<think>` or `<tool_call>` tags leak for
-  the other models, so the prompt is rendered into something gemma cannot parse. Not reachable by config.
+  device's template is gemma's own and parses `<|channel>` correctly, so the prompt is rendered into something gemma
+  cannot parse. Not reachable by config.
+
+### The sampler is not one lever
+
+Getting the preset wrong cost the **9B** 0.7 defects, doubled its wall time, and produced a single 10,661-token response
+where the card's presets stay under 2.5k. On the **35B** the same mistake cost nothing on recall — our earlier setting
+found five of six — and only 150 s. Capacity decides which knobs matter, so do not generalise a preset from one model to
+another, and do not pick a preset by its label: the one Qwen labels "for reasoning tasks" scored worst of the four.
 
 ## What every model misses, and why
 
@@ -98,11 +109,11 @@ produced an empty answer rather than a better one.
 ## Measuring
 
 ```bash
-npm run eval -- --fixture planted --settings tools/eval/models.json --runs 3 --device tiiny --out out/screen.jsonl
+npm run eval -- --fixture vending-supabase --settings tools/eval/models.json --runs 3 --device tiiny --out out/screen.jsonl
 ```
 
 - A **fixture** (`tools/eval/fixtures/<name>/`) holds `base/`, `head/` and `expect.json`; the harness commits both sides
-  so every run sees the same diff, and scores rows against the planted defects by name.
+  so every run sees the same diff, and scores rows against the planted defects by name (`expect.json`).
 - A **combo** is a whole `.ai-review.json`. `"deviceDefaults": true` fills the sampler block from the device's live
   `/props`.
 - Rows append with a `sweep` id and their `work` dir, so a sweep can be re-scored from disk instead of re-run.

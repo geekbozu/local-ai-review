@@ -13,6 +13,7 @@
 // Requires a reachable endpoint: AI_REVIEW_BASE_URL and AI_REVIEW_API_KEY in the environment, and Docker.
 
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, mkdtempSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
@@ -145,14 +146,33 @@ const metrics = (eventsPath, findingsPath, seconds) => {
   const scored = existsSync(findingsPath)
     ? readFileSync(findingsPath, "utf8").split(String.fromCharCode(10)).filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean)
     : [];
+  // Anything a model reported that no expectation covers is written out for judgement rather than counted as noise.
+  // Measured: two findings scored as "extra" were a real .single() regression and a README the change had falsified —
+  // the models were right and the fixture was incomplete.
+  const matched = new Set();
   for (const want of expectations) {
     const tokens = want.any || [want.quote || ""];
+    // A code defect cannot be "found" by quoting the comment that talks about it: measured on the oracle output, where
+    // the .single() expectation was satisfied by a finding quoting the misleading comment rather than the code.
+    const isComment = (q) =>
+      String(q || "")
+        .split("\n")
+        .filter((l) => l.trim())
+        .every((l) => /^\s*(\/\/|#|--|\*)/.test(l));
     const found = scored.some(
       (f) =>
         String(f.path || "").includes(want.path) &&
+        (!want.codeDefect || !isComment(f.quote)) &&
         tokens.some((t) => `${f.quote || ""}${f.body || ""}`.toLowerCase().includes(t.toLowerCase())),
     );
     if (found) hit.push(want.id);
+    for (const f of scored) {
+      if (
+        String(f.path || "").includes(want.path) &&
+        tokens.some((t) => `${f.quote || ""}${f.body || ""}`.toLowerCase().includes(t.toLowerCase()))
+      )
+        matched.add(f);
+    }
   }
   const findings = existsSync(findingsPath)
     ? readFileSync(findingsPath, "utf8").split("\n").filter(Boolean).length
@@ -170,6 +190,14 @@ const metrics = (eventsPath, findingsPath, seconds) => {
     distinct: new Set(calls).size,
     calls: calls.length,
     ...(expectations.length ? { found: hit.length, of: expectations.length, missing: expectations.map((e) => e.id).filter((id) => !hit.includes(id)) } : {}),
+    ...(expectations.length
+      ? {
+          extras: scored.filter((f) => !matched.has(f)).map((f) => ({ severity: f.severity, path: f.path, quote: f.quote, body: f.body })),
+          // Findings beyond the number of defects they cover: restatement is a different failure from fiction, and the
+          // extras list cannot see it. Measured: one run kept 8 findings for 5 defects with zero extras.
+          restated: Math.max(0, scored.length - hit.length),
+        }
+      : {}),
   };
 };
 
@@ -202,6 +230,10 @@ for (const combo of combos) {
           // later turn pays a four-minute prefill until the device cuts the request at ten minutes. It is not a default
           // — the action ships 0 — but every deployment that runs on this hardware has to say it.
           contextBudget: combo.contextBudget || 32000,
+          // The client's own patience is a hardware fact, not a default: at 300 s a slow model's first turn is
+          // aborted mid-stream and the row reads as a model failure. Measured on GLM under a 1.9k-token prompt:
+          // 'Request timed out.: This operation was aborted' after 849 s of work.
+          providerTimeoutMs: combo.providerTimeoutMs || 900000,
           ...settings,
         },
         null,
@@ -248,6 +280,15 @@ for (const combo of combos) {
       at: new Date().toISOString(),
       sweep: `${process.pid}@${started}`,
       action: execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: join(here, ".."), encoding: "utf8" }).trim(),
+      // Which prompt produced this row, and on which sampler. Without these, an A/B result is a filename and a memory:
+      // the prompt lives in the working tree, so an uncommitted variant has no other identity.
+      prompt: createHash("sha256").update(readFileSync(join(here, "..", "src", "lib", "prompt.mjs"))).digest("hex").slice(0, 12),
+      samplers: Object.fromEntries(
+        ["temperature", "topP", "topK", "minP", "presencePenalty", "repeatPenalty", "thinkingFormat", "reasoning"].map((k) => [
+          k,
+          combo.config.modelSettings?.[k],
+        ]),
+      ),
       combo: combo.name || "unnamed",
       run,
       work: target,

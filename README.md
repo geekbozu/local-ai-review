@@ -17,6 +17,22 @@ pull request → own workflow → checkout (fetch-depth: 0, no persisted credent
 
 ## Requirements on the runner
 
+**The runner has to be able to reach your model.** This is a local-model action, and the usual GitHub setup cannot help
+you: a GitHub-hosted runner is a machine in GitHub's cloud, your model is a box on your network, and there is no route
+between them. A workflow built on `runs-on: ubuntu-latest` will time out trying to reach `http://192.168.x.x/v1`.
+
+Three ways to satisfy it, in the order most people should consider them:
+
+| | What it means | Trade |
+|---|---|---|
+| **Self-hosted runner on the same network** (recommended) | A GitHub Actions runner on a machine that can reach the model. Any spare Linux box, or the model host itself if it runs a container runtime. | You maintain a runner; the model stays private. |
+| Tunnel from the model host | `cloudflared`, tailscale, a WireGuard peer — the endpoint becomes reachable from a public runner. | The model is exposed, however narrowly. Put authentication in front of it and keep TLS on. |
+| Public endpoint | The model is genuinely internet-facing. | Not recommended for a device that serves one request at a time: you have published an inference endpoint with no rate limit but its own. |
+
+The rest of this document assumes the first. `.github/workflows/ai-review.yml` in this repository is written for it, and
+the self-hosted runner is also what makes `providerTimeoutMs` and `contextBudget` meaningful — a slow device needs both,
+and a cloud runner would give up first.
+
 **`bubblewrap` must be installed.** The agent runs inside it, and without it the job **fails** rather than running
 unsandboxed — a green run that quietly dropped its boundary is worse than a red one.
 
@@ -118,9 +134,9 @@ file contents, and artifacts are as visible as the repository.
 
 ## Versioning
 
-`0.0.N` tags, where N is the commit count, so a version says how much history is behind a build. Tags are for a human
-reading the list. **Pin a commit** — a tag can move, and a self-hosted runner caches the action under its ref, so a
-moved tag arrives at a time nobody chose.
+**`1.0.0` is the first release**, and the only tag worth pinning by name. Tags are for a human reading the list;
+**pin a commit** — a tag can move, and a self-hosted runner caches the action under its ref, so a moved tag arrives at a
+time nobody chose. Earlier `0.0.N` tags recorded commit counts during development and were never releases.
 
 ## More
 
@@ -128,3 +144,4 @@ moved tag arrives at a time nobody chose.
 - [`docs/security.md`](docs/security.md) — what the sandbox enforces, and what it does not
 - [`docs/model-testing.md`](docs/model-testing.md) — what was tried on real hardware, what settings each model needed, and what did not work
 - [`docs/reference/tiiny.md`](docs/reference/tiiny.md) — notes on the device this was built against
+- `tools/eval/` — the harness and fixtures behind every number in `docs/model-testing.md`: `npm run eval -- --fixture vending-supabase --settings tools/eval/settings/qwen36-standard.json --runs 3`

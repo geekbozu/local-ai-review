@@ -96,7 +96,9 @@ Measure with one.
 
 ## Models measured on it
 
-Code-review measurements only, with the preset each model's own card recommends. The full table, the fixtures and what
+Code-review measurements only, with the preset each model's own card recommends. All of these predate the sentence
+that tells the agent it has tools, which was added afterwards (it can only help weak models infer an agentic frame; it
+was not in the runs below). The full table, the fixtures and what
 each setting bought are in [`docs/model-testing.md`](../model-testing.md).
 
 | model | note |
@@ -115,7 +117,7 @@ Measured on llama-swap rather than the Pocket, same fixture and prompt, two runs
 |---|---|
 | `LFM2.5-2.6B` | two of six and three of six in ~84 s: the cheapest gate measured, and it drives the tools correctly |
 | `LFM2-1.2B-tool` | 0 of 6 in 34 s. It calls tools and finds nothing, exactly as its card warns |
-| `LFM2.5-8B-A1B` | **fails to run**: it answers with a JSON plan in prose (`analysis`, `plan`) where a tool call belongs, so the run fails having read nothing. A serving/format problem, not a prompt one |
+| `LFM2.5-8B-A1B` | **fails to run, for two reasons now documented**: with the old prompt it answered "I don't have access to the filesystem" and wrote a plan (a prompt gap, fixed — the prompt now states the agent has tools); with that fixed it emits its native `<|tool_call_start|>[ls(path='/work')]<|tool_call_end|>` **as prose**, because the server does not parse that syntax into a tool call. It needs a tool-call parser for LFM2.5's Pythonic format before it can be measured |
 
 ### General models: none measured yet
 

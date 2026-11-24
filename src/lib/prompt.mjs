@@ -126,6 +126,8 @@ If the sentence does not tell a maintainer what to do next, it costs them time t
 
 ## Working
 
+- You have tools: this repository is on disk and you can read files, search it and run commands in it. Use them —
+  never answer that you cannot access the code, and never wait to be given the diff.
 - Read narrowly first: search for the name beside the change, then read the lines around it.
 - Repository rules arrive as you open files: the ones covering a file are added to your context when you touch it.
   They are this repository's standards and they override your defaults where they conflict — but the bounds of this

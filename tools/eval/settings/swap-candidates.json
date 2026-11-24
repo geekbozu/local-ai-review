@@ -1,0 +1,46 @@
+[
+  {
+    "name": "mellium2-thinking (neutral preset)",
+    "config": {
+      "model": "mellium2-thinking",
+      "thinking": "off",
+      "contextBudget": 24000,
+      "modelSettings": {
+        "contextWindow": 32768,
+        "maxTokens": 16384,
+        "minP": 0,
+        "frequencyPenalty": 0,
+        "temperature": 0.6,
+        "topP": 0.95,
+        "topK": 20,
+        "presencePenalty": 0,
+        "repeatPenalty": 1,
+        "reasoning": false,
+        "thinkingFormat": "none",
+        "chatTemplateKwargs": {}
+      }
+    }
+  },
+  {
+    "name": "tiel-coder-35b (neutral preset)",
+    "config": {
+      "model": "tiel-coder-35b",
+      "thinking": "off",
+      "contextBudget": 24000,
+      "modelSettings": {
+        "contextWindow": 32768,
+        "maxTokens": 16384,
+        "minP": 0,
+        "frequencyPenalty": 0,
+        "temperature": 0.6,
+        "topP": 0.95,
+        "topK": 20,
+        "presencePenalty": 0,
+        "repeatPenalty": 1,
+        "reasoning": false,
+        "thinkingFormat": "none",
+        "chatTemplateKwargs": {}
+      }
+    }
+  }
+]

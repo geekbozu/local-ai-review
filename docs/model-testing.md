@@ -68,6 +68,39 @@ where the card's presets stay under 2.5k. On the **35B** the same mistake cost n
 found five of six — and only 150 s. Capacity decides which knobs matter, so do not generalise a preset from one model to
 another, and do not pick a preset by its label: the one Qwen labels "for reasoning tasks" scored worst of the four.
 
+## A shared box (llama-swap)
+
+A second machine serves models over llama-swap. It is someone's desktop, so it is not a measurement rig: it is idle or it is
+busy playing games, and a run that lands during a game measures the game. Treat anything measured there as indicative, and
+re-measure on dedicated hardware before it changes a recommendation.
+
+Measured there, two runs each, same fixture and prompt:
+
+| model | found | wall | note |
+|---|---|---|---|
+| `LFM2.5-2.6B` | 2.5 of 6 | 84 s | drives the tools correctly; the cheapest gate measured anywhere |
+| `LFM2-1.2B-tool` | 0 of 6 | 34 s | calls tools, cannot review — its card says not to use it for programming |
+| `LFM2.5-8B-A1B` | blocked | - | emits `<|tool_call_start|>[ls(path=...)]<|tool_call_end|>` as prose; needs a tool-call parser on the server |
+
+Probed on the same box and **not** measured, because it is not idle hardware:
+
+| model | tool calls | first response |
+|---|---|---|
+| `qwen38-27b-unleashed` | yes | 23 s |
+| `qwen9b` | yes | 21 s |
+| `qwen9b-r.c` | yes | 2 s |
+| `tiel-coder-35b` (an Ornith re-tune) | yes | 35 s |
+| `ornith15-35b` | yes | 42 s |
+| `mellium2-thinking` | untested | - |
+
+All five that answered already call tools, so nothing there needs the LFM parser work. The first response includes the model
+load; none of those numbers is generation speed.
+
+**Decision models are not chat models.** `clef-flash` and the `d1-*` entries answer on the decisions protocol
+(`/v1/systemone`), not `/v1/chat/completions` — a chat request to one hangs rather than failing, which is what happened when
+one was probed as if it were a reviewer. They judge, they do not review, and they belong to `tools like pi-warden`, not to
+this action.
+
 ## What every model misses, and why
 
 Across 70+ runs, two defects were missed far more than the other three:

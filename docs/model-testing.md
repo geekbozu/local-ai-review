@@ -12,8 +12,8 @@ The pair exists because supabase-js is common in training data: on the Supabase 
 defect by recognising `.single()`, which is not review skill. The difference between a model's two scores is how much of
 its result was library recognition.
 
-**Numbers are only comparable within this fixture.** It says what a model does with these five, not what it does with
-your repository.
+**Numbers are only comparable within one fixture, prompt and preset.** It says what a model does with these six
+defects, not what it does with your repository.
 
 ## The device
 
@@ -30,35 +30,36 @@ divide tokens by wall time either — read `timings` from the response or `n_don
 
 ## The models
 
-Every model on the sampler **its own card recommends**, three runs each, on `vending-supabase` with the shipped prompt.
+Only four rows are measured on the current fixture and the shipped prompt. Everything else predates one or both, and is
+listed separately rather than mixed in — the earlier table in this document did mix them, which made it wrong.
 
-| model | preset | found | kept | wall |
+**`vending-supabase`, six defects, shipped prompt, three runs each:**
+
+| model | preset (from its card) | found | kept | wall |
 |---|---|---|---|---|
-| **Qwen3.6-35B-A3B** | card instruct: 0.7 / 0.8 / presence 1.5 | **5.00** (6 / 5 / 4) | 5.3 | 296 s |
+| **Qwen3.6-35B-A3B** | instruct: 0.7 / 0.8 / presence 1.5 | **5.00** (6 / 5 / 4) | 5.3 | 296 s |
 | Qwen3.6-35B-A3B-Turbo | same | 4.33 (4 / 5 / 4) | 5.0 | **224 s** |
-| Qwen3.6-35B-A3B | our earlier 0.6 / 0.95 / presence 0 | 5.00 (5 / 5 / 5) | 5.7 | 448 s |
-| **Qwen3.5-9B-Turbo** | card thinking, general: 1.0 / 0.95 / 1.5 | 3.33 (4 / 3 / 3) | 4.0 | 176 s |
-| Qwen3.5-9B-Turbo | card instruct, general: 0.7 / 0.8 / 1.5 | 3.00 (4 / 2 / 3) | 3.0 | **136 s** |
-| Qwen3-Coder-Next (80B, 3B active) | 0.6 / 0.95 / 20 | 4.33 (4 / 5 / 4) | 4.0 | 209 s |
-| GLM-4.7-Flash | card agentic: 0.7 / 1.0 | 3.00 (3 / 3 / 3) | 3.7 | 305 s |
-| Ornith-1.5-35B | card row | 2.33 | 3.0 | 868 s |
-| gemma-4-26B-A4B-it | any | **unusable** | - | - |
+| Qwen3.5-9B-Turbo | thinking, general: 1.0 / 0.95 / presence 1.5 | 3.33 (4 / 3 / 3) | 4.0 | 176 s |
+| Qwen3.5-9B-Turbo | instruct, general: 0.7 / 0.8 / presence 1.5 | 3.00 (4 / 2 / 3) | 3.0 | **136 s** |
 
-Read with the spread in mind: identical runs of one model span one to two defects, so **a single run cannot rank two
-models**, and the ordering above is only meaningful where the gap is larger than that — Qwen3.6 over the 9B, both over
-Ornith.
+**Earlier measurements — different fixture, different prompt. Not comparable, kept for the record:**
 
-- **Use Qwen3.6-35B on the card's instruct preset.** It is the only model that has produced a 6 of 6, it averages five,
-  and it costs five minutes. That preset is also the fastest of its three.
-- **Turbo is the same reviewer, faster.** One defect of recall against 72 s and 25% fewer turns. Right when the queue
-  matters, not when the fifth defect does.
-- **The 9B is the cheap gate.** Three of six in about two and a half minutes on a tenth of the memory.
-- **GLM-4.7 is flat and slow** — the same three defects at every preset, 300-500 s. It is not in the running.
+| model | what was measured | why it is here |
+|---|---|---|
+| Qwen3-Coder-Next (80B, 3B active) | 4 of 5 on the older five-defect fixture, prompt X, 209 s | never re-run on the current fixture |
+| Qwen3.6-35B-A3B | 5 of 5 on the older fixture with its own 0.6 / 0.95 sampler, 448 s | the sampler comparison, same fixture as the row above it |
+| GLM-4.7-Flash | 3 of 6 in 305 s — **on the GitHub-rubric prompt**, sampler 0.6 / 0.95 | not measured on the shipped prompt |
+| Ornith-1.5-35B | 2 of 5 on the older fixture, 868 s | not a reviewer; see below |
+
+- **Qwen3.6-35B on its card's instruct preset** is the recommendation: the only configuration to produce a 6 of 6, five
+  on average, about five minutes.
+- **Turbo is the same reviewer, faster** — one defect of recall for 72 s and 25% fewer turns.
+- **The 9B is the cheap gate** — three of six in two to three minutes, on a tenth of the memory.
+- **GLM-4.7 is flat and slow** wherever it has been measured, and has not earned a row on the current settings.
 - **Ornith is not a reviewer** at any setting: it reads everything, files one finding, and takes 500-900 s.
-- **gemma-4-26B-A4B-it cannot be used here.** A direct, non-streaming request calls tools correctly, but under the agent
-  five runs in six returned token soup (`<find<|"|>} <thought`, one burning all 8192 output tokens) after 30-250 s. The
-  device's template is gemma's own and parses `<|channel>` correctly, so the prompt is rendered into something gemma
-  cannot parse. Not reachable by config.
+- **gemma-4-26B-A4B-it cannot be used here.** A direct non-streaming request calls tools correctly, but under the agent
+  five runs in six returned token soup (`<find<|"|>} <thought`, one burning all 8192 output tokens). The device's template
+  is gemma's own and parses `<|channel>` correctly, so the prompt is rendered into something gemma cannot parse.
 
 ### The sampler is not one lever
 

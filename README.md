@@ -29,9 +29,9 @@ Three ways to satisfy it, in the order most people should consider them:
 | Tunnel from the model host | `cloudflared`, tailscale, a WireGuard peer — the endpoint becomes reachable from a public runner. | The model is exposed, however narrowly. Put authentication in front of it and keep TLS on. |
 | Public endpoint | The model is genuinely internet-facing. | Not recommended for a device that serves one request at a time: you have published an inference endpoint with no rate limit but its own. |
 
-The rest of this document assumes the first. `.github/workflows/ai-review.yml` in this repository is written for it, and
-the self-hosted runner is also what makes `providerTimeoutMs` and `contextBudget` meaningful — a slow device needs both,
-and a cloud runner would give up first.
+The rest of this document assumes the first, and **Set up** below is written for it. The self-hosted runner is also what
+makes `providerTimeoutMs` and `contextBudget` meaningful: a slow device needs both raised, and a cloud runner would give
+up before the model finished reading.
 
 **`bubblewrap` must be installed.** The agent runs inside it, and without it the job **fails** rather than running
 unsandboxed — a green run that quietly dropped its boundary is worse than a red one.
@@ -134,9 +134,9 @@ file contents, and artifacts are as visible as the repository.
 
 ## Versioning
 
-**`1.0.0` is the first release**, and the only tag worth pinning by name. Tags are for a human reading the list;
-**pin a commit** — a tag can move, and a self-hosted runner caches the action under its ref, so a moved tag arrives at a
-time nobody chose. Earlier `0.0.N` tags recorded commit counts during development and were never releases.
+**Pin a commit**, not a tag. A tag can move, and a self-hosted runner caches the action under its ref, so a moved tag
+arrives at a time nobody chose. The development `0.0.N` tags recorded commit counts and have been deleted; the first
+release tag will be `1.0.0` when it is cut.
 
 ## More
 

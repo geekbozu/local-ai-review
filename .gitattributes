@@ -1,0 +1,15 @@
+# Repository content is LF. Checkout conversion is off everywhere, so a Windows clone, a Python write with the default
+# newline, or an editor that "fixes" line endings cannot turn one edited line into a whole-file diff again.
+* text=auto eol=lf
+
+# Anything that is not text must never be normalised.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.zip binary
+*.gz binary
+*.woff binary
+*.woff2 binary

@@ -68,45 +68,12 @@ where the card's presets stay under 2.5k. On the **35B** the same mistake cost n
 found five of six — and only 150 s. Capacity decides which knobs matter, so do not generalise a preset from one model to
 another, and do not pick a preset by its label: the one Qwen labels "for reasoning tasks" scored worst of the four.
 
-## A shared box (llama-swap)
+## A second machine
 
-A second machine serves models over llama-swap on a 4060 Ti with Q4_K_M quants. It is someone's desktop: idle or gaming,
-nothing in between. Two consequences, both real:
-
-- **Wall times there are only comparable within one batch.** The same model and settings took 116 s and 326 s in different
-  batches.
-- **Every score is a floor for that model**, because the quant is not the model: Q4_K_M of a 12B-active expert mix on
-  8 GB of VRAM measures the quant and the card as much as the weights.
-
-Recall is the column to trust; time is indicative.
-
-| model | preset | found | runs | wall |
-|---|---|---|---|---|
-| `qwen38-27b-unleashed` | swap defaults | **5.0** | 4 · 6 | 310 s |
-| `tiel-coder-35b` (an Ornith re-tune) | swap defaults | 4.6 | 5 · 5 · 4 · 5 · 4 | **136 s** |
-| `inkling-2-mini-96k` | `reasoning_effort: low`, 16k budget | 4.6 | 6 · 4 · 5 · 4 · 4 | 176 s |
-| `Mellum2.1` | card: temp 1.0 | 3.0 | 3 · 3 | **70 s** |
-| `LFM2.5-2.6B` | card | 2.5 | 3 · 2 | 84 s |
-| `LFM2-1.2B-tool` | card | 0.0 | 0 · 0 | 34 s |
-| `LFM2.5-8B-A1B` | - | blocked | - | needs a tool-call parser |
-
-Read against Qwen3.6's 5.0 in 296 s on the Pocket: at ten minutes a review, **recall decides and the fast pair are a
-fallback for a busy box**, not the default.
-
-### Two levers that are not about the model
-
-- **`contextBudget` is a quality lever, not just a cost one.** `inkling-2-mini` at a 64k budget scored 3 · 5 (4.0); at 16k,
-  on the same effort, 6 · 4 (5.0) — one more defect and slightly faster, in half the turns. A generous allowance invites
-  the agent to read whole files and drift; a tight one forces narrow reads. Every number in the tables above was measured
-  at a budget chosen by us, not by the model.
-- **`reasoning_effort` is not a quality lever.** On Inkling, `medium` matched `low` on recall (4.0 both) for 45% more wall
-  time and 50% more turns. Turning thinking up for a harder task is the intuitive move and it did not pay here.
-- **Inkling is controlled by `reasoning_effort`, not `enable_thinking`.** It exposes no thinking toggle; the first attempt
-  ran past twelve minutes because the prompt sent no effort parameter and the model chose its own. `thinkingFormat:
-  "openai"` is the right one for it — the only model here where that format is correct rather than a fallback.
-
-**Decision models are not chat models.** `clef-flash` and the `d1-*` entries answer on `/v1/systemone`, not
-`/v1/chat/completions`; a chat request to one hangs rather than failing. They judge, they do not review.
+Models were also measured on a self-hosted llama-swap box (a desktop with one 4060 Ti, Q4_K_M quants). Its results, its
+caveats — wall times that are only comparable within a batch, and quants that make every score a floor — are on
+[`docs/reference/llama-swap.md`](reference/llama-swap.md), kept separate from the Pocket so the two are not read as one
+table.
 
 ## What every model misses, and why
 

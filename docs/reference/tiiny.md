@@ -111,13 +111,7 @@ each setting bought are in [`docs/model-testing.md`](../model-testing.md).
 | `ornith-ai/Ornith-1.5-35B-A3B-Turbo` | not a reviewer: reads everything, files one finding, 500-900 s |
 | `google/gemma-4-26B-A4B-it` | **unusable here**: token soup under the agent, though a direct request calls tools correctly |
 
-Measured on llama-swap rather than the Pocket, same fixture and prompt, two runs each:
-
-| model | note |
-|---|---|
-| `LFM2.5-2.6B` | two of six and three of six in ~84 s: the cheapest gate measured, and it drives the tools correctly |
-| `LFM2-1.2B-tool` | 0 of 6 in 34 s. It calls tools and finds nothing, exactly as its card warns |
-| `LFM2.5-8B-A1B` | **fails to run, for two reasons now documented**: with the old prompt it answered "I don't have access to the filesystem" and wrote a plan (a prompt gap, fixed — the prompt now states the agent has tools); with that fixed it emits its native `<|tool_call_start|>[ls(path='/work')]<|tool_call_end|>` **as prose**, because the server does not parse that syntax into a tool call. It needs a tool-call parser for LFM2.5's Pythonic format before it can be measured |
+Models measured on a self-hosted llama-swap box are on their own page: [`llama-swap.md`](llama-swap.md).
 
 ### General models: none measured yet
 

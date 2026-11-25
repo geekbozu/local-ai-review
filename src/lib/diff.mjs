@@ -53,6 +53,9 @@ export function parseDiff(text) {
       file.removed.push({ line: oldLine++, text: normalise(raw.slice(1)) });
       continue;
     }
+    // A context line occupies a line in both files, so both counters advance — leaving oldLine put shifted every
+    // later removed line's old-file number, and resolveLine's clash check with it.
+    oldLine += 1;
     file.context.push({ line: newLine++, text: normalise(raw.startsWith(" ") ? raw.slice(1) : raw) });
   }
 
@@ -124,6 +127,7 @@ export function diffStats(files) {
     added: f.added.length,
     removed: f.removed.length,
   }));
-  const total = perFile.reduce((n, f) => ({ added: n.added + f.added, removed: n.removed + f.removed.length }), { added: 0, removed: 0 });
+  // perFile.removed is already a count; reading .length off it summed undefined and produced NaN.
+  const total = perFile.reduce((n, f) => ({ added: n.added + f.added, removed: n.removed + f.removed }), { added: 0, removed: 0 });
   return { perFile, total };
 }

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseDiff, resolveQuote, resolveLine, touchedPaths } from "../src/lib/diff.mjs";
+import { parseDiff, resolveQuote, resolveLine, touchedPaths, diffStats } from "../src/lib/diff.mjs";
 import { buildReview, existingMarkers, summarise } from "../src/lib/posting.mjs";
 
 const DIFF = `diff --git a/src/services/scores.ts b/src/services/scores.ts
@@ -320,6 +320,48 @@ test("an explicit line anchors when it names exactly one line", () => {
   assert.equal(resolveLine(files, "src/services/scores.ts", "nope"), null);
 });
 
+// Nothing tested diffStats before, which is how a NaN total.removed reached every prompt unnoticed.
+test("diffStats counts added and removed lines per file and in total", () => {
+  const stats = diffStats(files);
+  assert.deepEqual(stats.perFile, [
+    { path: "src/services/scores.ts", added: 6, removed: 1 },
+    { path: "src/services/scores.test.ts", added: 4, removed: 0 },
+  ]);
+  assert.deepEqual(stats.total, { added: 10, removed: 1 });
+});
+
+// A context line occupies a line in both files. When oldLine did not advance, every removed line after the first
+// context line carried an old-file number one too low per context line.
+test("context lines advance the old-file counter, so a removed line keeps its real old number", () => {
+  const shifted = parseDiff(`diff --git a/a.txt b/a.txt
+--- a/a.txt
++++ b/a.txt
+@@ -1,5 +1,5 @@
+ one
+ two
+-REMOVED-old-3
++ADDED
+ three`);
+  assert.deepEqual(
+    shifted.get("a.txt").removed.map((r) => r.line),
+    [3],
+  );
+  // The clash check reads the same numbers: old 1 is context "one", not a phantom removed line.
+  assert.equal(resolveLine(shifted, "a.txt", 1)?.side, "context");
+});
+
+// The clash check only refuses when the two sides disagree: a line that reads the same on both sides of the hunk is
+// one line as far as the reader is concerned, and still anchors.
+test("a line with identical text on both sides of the hunk resolves", () => {
+  const moved = parseDiff(`diff --git a/m.txt b/m.txt
+--- a/m.txt
++++ b/m.txt
+@@ -1,1 +1,1 @@
+-same
++same`);
+  assert.equal(resolveLine(moved, "m.txt", 1)?.side, "added");
+});
+
 test("a line that is a different line on each side of the hunk refuses rather than guesses", () => {
   // New-file line 20 is the added .single() line; old-file line 20 is the removed .maybeSingle() line. One number,
   // two lines: the same failure as an ambiguous quote.
@@ -375,4 +417,27 @@ test("a finding anchored by line and the same finding anchored by quote do not p
     diff: DIFF,
   }).posted[0];
   assert.equal(prefixed.marker, quoted.marker);
+});
+
+// Line numbers shift on the next push, so a marker keyed on the resolved line would post the same defect again. The
+// text of the line is the stable half of the identity.
+test("a line-anchored marker survives the line shifting between pushes", () => {
+  const before = `diff --git a/f.txt b/f.txt
+--- a/f.txt
++++ b/f.txt
+@@ -1,2 +1,3 @@
+ one
++BAD
+ three`;
+  const after = `diff --git a/f.txt b/f.txt
+--- a/f.txt
++++ b/f.txt
+@@ -1,2 +1,4 @@
++intro
+ one
++BAD
+ three`;
+  const first = buildReview({ findings: [{ path: "f.txt", line: 2, severity: "high", body: "defect" }], diff: before }).posted[0];
+  const next = buildReview({ findings: [{ path: "f.txt", line: 3, severity: "high", body: "defect" }], diff: after }).posted[0];
+  assert.equal(next.marker, first.marker);
 });

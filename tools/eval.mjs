@@ -14,10 +14,11 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync, appendFileSync, mkdirSync, mkdtempSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { device } from "./eval/device.mjs";
+import { metrics } from "./eval/metrics.mjs";
 
 const host = (p) => p.split("\\").join("/");
 
@@ -124,91 +125,6 @@ mkdirSync(dirname(out), { recursive: true });
 
 execFileSync("docker", ["build", "-q", "-t", image, join(here, "eval")], { stdio: "inherit" });
 
-// The numbers come from the event stream, never from what was posted: the poster's floors, markers and caps are policy,
-// and a sweep is asking what the *model* did.
-const metrics = (eventsPath, findingsPath, seconds) => {
-  const lines = existsSync(eventsPath) ? readFileSync(eventsPath, "utf8").split("\n") : [];
-  const tools = {};
-  const calls = [];
-  let turns = 0;
-  let answered = false;
-  for (const line of lines) {
-    let event;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (event.type === "turn_end") turns += 1;
-    if (event.type === "message_end" && event.message?.role === "assistant" && !event.message.errorMessage) answered = true;
-    if (event.type === "tool_execution_start") {
-      tools[event.toolName] = (tools[event.toolName] || 0) + 1;
-      const a = event.args || {};
-      calls.push(`${event.toolName} ${String(a.command || a.path || a.id || "")}`.slice(0, 80));
-    }
-  }
-  const hit = [];
-  const scored = existsSync(findingsPath)
-    ? readFileSync(findingsPath, "utf8").split(String.fromCharCode(10)).filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean)
-    : [];
-
-  // One predicate decides whether a finding answers an expectation, and both `hit` and the extras set use it. They used
-  // to disagree: extras ignored the comment-quote rule, so a finding that quoted the comment describing a defect instead
-  // of the code counted toward neither list and vanished from every metric but the raw count.
-  //
-  // A code defect cannot be "found" by quoting the comment that talks about it — measured on the oracle output, where the
-  // .single() expectation was satisfied by a finding quoting the misleading comment rather than the code.
-  const isComment = (q) =>
-    String(q || "")
-      .split("\n")
-      .filter((l) => l.trim())
-      .every((l) => /^\s*(\/\/|#|--|\*)/.test(l));
-  const answers = (want, f) => {
-    const tokens = want.any || [want.quote || ""];
-    return (
-      String(f.path || "").includes(want.path) &&
-      (!want.codeDefect || !isComment(f.quote)) &&
-      tokens.some((t) => `${f.quote || ""}${f.body || ""}`.toLowerCase().includes(t.toLowerCase()))
-    );
-  };
-
-  const matched = new Set();
-  let duplicates = 0;
-  for (const want of expectations) {
-    const claimed = scored.filter((f) => answers(want, f));
-    if (claimed.length) hit.push(want.id);
-    for (const f of claimed) matched.add(f);
-    // Findings beyond the first that answers one expectation are restatements of it. Counting extras here instead (as
-    // scored.length - hit.length did) labelled fiction as restatement and missed a finding that answered two
-    // expectations on one path.
-    duplicates += Math.max(0, claimed.length - 1);
-  }
-
-  return {
-    seconds,
-    turns,
-    answered,
-    // What the model actually filed, as opposed to what it claimed in prose.
-    findings: scored.length,
-    reports: tools.report_finding || 0,
-    withdraws: tools.withdraw_finding || 0,
-    updates: tools.update_finding || 0,
-    lists: tools.list_findings || 0,
-    bash: tools.bash || 0,
-    distinct: new Set(calls).size,
-    calls: calls.length,
-    ...(expectations.length ? { found: hit.length, of: expectations.length, missing: expectations.map((e) => e.id).filter((id) => !hit.includes(id)) } : {}),
-    ...(expectations.length
-      ? {
-          extras: scored.filter((f) => !matched.has(f)).map((f) => ({ severity: f.severity, path: f.path, quote: f.quote, body: f.body })),
-          // Findings beyond the number of defects they cover: restatement is a different failure from fiction, and the
-          // extras list cannot see it. Measured: one run kept 8 findings for 5 defects with zero extras.
-          restated: duplicates,
-        }
-      : {}),
-  };
-};
-
 pruneOrphans();
 
 // Any OpenAI-compatible endpoint works; only a device that keeps one model resident needs to be told which to load. That
@@ -305,7 +221,7 @@ for (const combo of combos) {
       run,
       work: target,
       ...(failure ? { error: failure.slice(0, 400) } : {}),
-      ...metrics(join(target, ".eval", "events.jsonl"), join(target, ".eval", "findings.jsonl"), Math.round((Date.now() - started) / 1000)),
+      ...metrics(join(target, ".eval", "events.jsonl"), join(target, ".eval", "findings.jsonl"), Math.round((Date.now() - started) / 1000), expectations),
     };
     rows.push(row);
     writeFileSync(out, rows.map((r) => JSON.stringify(r)).join("\n") + "\n");

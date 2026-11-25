@@ -1,0 +1,203 @@
+name: AI review
+description: Review a pull request with a local model on your own hardware, and post the findings as inline comments. Repo-agnostic; a repository opts in with a .ai-review.json at its root.
+
+inputs:
+  base-ref:
+    description: The ref to diff against, e.g. origin/main.
+    required: false
+    default: origin/main
+  base-url:
+    description: OpenAI-compatible endpoint including /v1, e.g. http://model-box.example/v1
+    required: true
+  # Optional because `.ai-review.json` may name it: the repository choosing its own model is the normal case, and
+  # requiring it here would force a generic workflow to hardcode one operator's model as a default.
+  model:
+    description: Model id as the endpoint knows it. Optional when .ai-review.json sets `model`.
+    required: false
+  api-key-env:
+    description: Name of the environment variable holding the endpoint's key. The key is never written to disk.
+    required: false
+    default: AI_REVIEW_API_KEY
+  # Optional, like `model`: a repository's own ceiling belongs in its config, and a default here made that unreachable —
+  # the env var was always set, so `.ai-review.json`'s maxTokens never applied. A review turn needs a few thousand tokens;
+  # a model that decides to write ten thousand of them needs a ceiling that says so.
+  max-tokens:
+    description: Output ceiling per turn. Optional; .ai-review.json's modelSettings.maxTokens is used when this is unset.
+    required: false
+    default: ""
+  time-budget-minutes:
+    description: Optional wall-clock backstop, 0 for off. Effort is allocated by what the diff touches; set this only to stop a wedged run.
+    required: false
+    default: "0"
+  upload-events:
+    description: Upload the raw event stream as an artifact. It records tool results, which are file contents, so it is off by default and should stay off in a public repository.
+    required: false
+    default: "false"
+  pr-number:
+    description: Pull request number. Defaults to the event's.
+    required: false
+    default: ""
+  post:
+    description: Set to false to review without posting (useful for a first run).
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Opted in?
+      id: opted-in
+      shell: bash
+      run: |
+        if [ -f .ai-review.json ]; then
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "enabled=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::No .ai-review.json at the repo root, so this repository has not opted in. Skipping."
+        fi
+
+    # A repo can merge the workflow before it has the secret or the endpoint configured. Saying so once, and
+    # skipping, keeps a missing key from being a red X on every pull request until someone gets to it.
+    - name: Configured?
+      id: configured
+      if: steps.opted-in.outputs.enabled == 'true'
+      shell: bash
+      env:
+        AI_REVIEW_API_KEY_ENV: ${{ inputs.api-key-env }}
+      run: |
+        set -u
+        key="${!AI_REVIEW_API_KEY_ENV:-}"
+        missing=""
+        [ -n "${{ inputs.base-url }}" ] || missing="base-url"
+        # The model may come from `.ai-review.json` instead — the repository's own choice beats a workflow's default, so
+        # an empty input is only a problem when the config does not name one either. Requiring it here skipped every
+        # review of a repository that configured its model the recommended way.
+        if [ -z "${{ inputs.model }}" ] && ! grep -q '^[[:space:]]*"model"[[:space:]]*:' .ai-review.json 2>/dev/null; then
+          missing="${missing:+$missing, }model"
+        fi
+        [ -n "$key" ] || missing="${missing:+$missing, }${AI_REVIEW_API_KEY_ENV}"
+        if [ -n "$missing" ]; then
+          echo "ready=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::AI review is opted in but not configured: missing $missing. Skipping."
+        else
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    # setup-node caches the runtime under the runner's own `_work/_tool`, which a self-hosted runner keeps between
+    # jobs — so this downloads Node once per board, not once per job.
+    - uses: actions/setup-node@v4
+      if: steps.opted-in.outputs.enabled == 'true' && steps.configured.outputs.ready == 'true'
+      with:
+        node-version: 22
+
+    # Machine tooling, not a project dependency: it must not enter any consumer's package.json.
+    # Idempotent: on a self-hosted runner the tool is already there from the previous job, and installing it again is
+    # a network round trip per job for nothing. On a hosted runner this degrades to the old behaviour.
+    # Required, not optional, and failing is the point: a runner without bubblewrap is misconfigured, and a red X says so
+    # where a green run that quietly reviewed nothing does not. This action does not install bubblewrap — a step that
+    # installs a sandbox runs outside the sandbox. Whether the failure blocks a merge is the consumer's `continue-on-error`,
+    # not something a step can promise.
+    - name: Sandbox
+      id: sandbox
+      if: steps.configured.outputs.ready == 'true'
+      shell: bash
+      run: |
+        if command -v bwrap >/dev/null 2>&1; then
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "ready=false" >> "$GITHUB_OUTPUT"
+          echo "::error::bubblewrap is not installed on this runner, so the review cannot run sandboxed. Install it once per runner (apt-get install bubblewrap); see docs/security.md. This is a failure, not a skip: an advisory review that loses its boundary silently is worse than a red X."
+          exit 1
+        fi
+
+    - name: Install pi
+      if: steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true'
+      shell: bash
+      run: |
+        if command -v pi >/dev/null 2>&1; then
+          echo "pi already installed"
+        else
+          npm i -g @earendil-works/pi-coding-agent
+        fi
+
+    - name: Review
+      if: steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true'
+      shell: bash
+      env:
+        PI_BIN: pi
+        # Pi caches `-e` packages under its agent directory. Pointed at the parent of the workspace, which a
+        # self-hosted runner keeps between jobs, the pinned clone is fetched once per board rather than per job.
+        PI_CODING_AGENT_DIR: ${{ github.workspace }}/../.pi-cache
+        BASE_REF: ${{ inputs.base-ref }}
+        AI_REVIEW_MODEL: ${{ inputs.model }}
+        AI_REVIEW_BASE_URL: ${{ inputs.base-url }}
+        AI_REVIEW_API_KEY_ENV: ${{ inputs.api-key-env }}
+        AI_REVIEW_MAX_TOKENS: ${{ inputs.max-tokens }}
+        AI_REVIEW_TIME_BUDGET_MIN: ${{ inputs.time-budget-minutes }}
+        FINDINGS_FILE: ${{ runner.temp }}/ai-review-findings.jsonl
+        EVENTS_FILE: ${{ runner.temp }}/ai-review-events.jsonl
+        PROMPT_FILE: ${{ runner.temp }}/ai-review-prompt.txt
+        TRANSCRIPT_FILE: ${{ runner.temp }}/ai-review-transcript.md
+        # Budget notes, and every finding the poster will not place. In runner.temp so the artifact carries them.
+        NOTES_FILE: ${{ runner.temp }}/ai-review-notes.txt
+        # The diff and the severity floor, frozen before the agent runs, in the per-job temp — where only two files are
+        # writable, so this cannot be changed after the fact. The workspace holds `.git`, and the agent may write there.
+        FROZEN_DIR: ${{ runner.temp }}/ai-review-frozen
+      run: node "${{ github.action_path }}/src/review.mjs"
+
+    # Rendered separately from the run so it survives a kill: the events stream to disk as they arrive, and this
+    # reads whatever got there. A cancelled job is exactly the one worth reading.
+    - name: Render the transcript
+      if: always() && steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true'
+      shell: bash
+      env:
+        EVENTS_FILE: ${{ runner.temp }}/ai-review-events.jsonl
+        TRANSCRIPT_FILE: ${{ runner.temp }}/ai-review-transcript.md
+      run: node "${{ github.action_path }}/src/render-transcript.mjs"
+
+    - name: Post
+      if: steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true' && inputs.post == 'true'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        PR_NUMBER: ${{ inputs.pr-number || github.event.pull_request.number }}
+        BASE_REF: ${{ inputs.base-ref }}
+        FINDINGS_FILE: ${{ runner.temp }}/ai-review-findings.jsonl
+        EVENTS_FILE: ${{ runner.temp }}/ai-review-events.jsonl
+        AI_REVIEW_CONFIG: .ai-review.json
+        # Appended to, not written: the budget notes are already in it.
+        AI_REVIEW_NOTES: ${{ runner.temp }}/ai-review-notes.txt
+        FROZEN_DIR: ${{ runner.temp }}/ai-review-frozen
+      run: node "${{ github.action_path }}/src/post.mjs"
+
+    # After Post, unlike a plain log upload, because posting is what writes the dropped findings into the notes.
+    # `always()` keeps the cancelled run, which is the one worth reading. The event stream is deliberately not in this
+    # glob: it records tool results, which is to say file contents, so it is a separate opt-in artifact below.
+    - name: Keep the run
+      if: always() && steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ai-review-run
+        # findings (what it decided), prompt (what it was told), notes (what it decided not to post and why),
+        # transcript (the readable trace). The budget, the instructions and the risk hints are all tuned by reading
+        # these against each other, and the prompt is the half that is otherwise unrecoverable.
+        path: |
+          ${{ runner.temp }}/ai-review-findings.jsonl
+          ${{ runner.temp }}/ai-review-prompt.txt
+          ${{ runner.temp }}/ai-review-notes.txt
+          ${{ runner.temp }}/ai-review-transcript.md
+        if-no-files-found: ignore
+        retention-days: 7
+
+    # Opt-in, and off by default. A tool result is a file's contents: on a public repository this artifact is public
+    # too, which makes the reviewer a way to publish what it read. Turn it on where the repository is private and the
+    # trace is worth having for triage.
+    - name: Keep the event stream
+      if: always() && inputs.upload-events == 'true' && steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ai-review-events
+        path: ${{ runner.temp }}/ai-review-events.jsonl
+        if-no-files-found: ignore
+        retention-days: 7

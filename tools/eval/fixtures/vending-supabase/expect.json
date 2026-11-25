@@ -1,0 +1,76 @@
+[
+  {
+    "id": "strict-single-read",
+    "path": "src/stock.ts",
+    "severity": "high",
+    "codeDefect": true,
+    "any": [
+      ".single(",
+      "zero rows",
+      "throws",
+      "not return null",
+      "maybeSingle"
+    ],
+    "why": "single() resolves {data: null, error} for zero or many rows and the code discards the error, so a duplicate row and a missing row are both indistinguishable from no stock"
+  },
+  {
+    "id": "missing-await",
+    "path": "src/stock.ts",
+    "severity": "high",
+    "codeDefect": true,
+    "any": [
+      "const { rows } =",
+      "not awaited",
+      "missing await",
+      "without await"
+    ],
+    "why": "the query builder is not awaited, so rows is undefined where it is read"
+  },
+  {
+    "id": "unescaped-markup",
+    "path": "src/labels.ts",
+    "severity": "high",
+    "codeDefect": true,
+    "any": [
+      "replace",
+      "escap",
+      "markup",
+      "inject"
+    ],
+    "why": "req.query.label reaches renderLabel and is substituted into markup unescaped"
+  },
+  {
+    "id": "pull-request-target",
+    "path": ".github/workflows/ci.yml",
+    "severity": "critical",
+    "codeDefect": true,
+    "any": [
+      "pull_request_target"
+    ],
+    "why": "pull_request_target with a head checkout and a secret in scope is the classic exfiltration path"
+  },
+  {
+    "id": "stale-timeout-comment",
+    "path": ".github/workflows/ci.yml",
+    "severity": "low",
+    "any": [
+      "twenty",
+      "20 minutes",
+      "timeout-minutes",
+      "timeout is 90"
+    ],
+    "why": "the comment justifies twenty minutes; the value is 90"
+  },
+  {
+    "id": "readme-drift",
+    "path": "README.md",
+    "severity": "low",
+    "any": [
+      "maybeSingle",
+      "single()",
+      "no longer",
+      "contradicts"
+    ],
+    "why": "the change moved to one() and left the README telling callers to use maybeOne"
+  }
+]

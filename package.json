@@ -1,0 +1,13 @@
+{
+  "name": "local-ai-review",
+  "private": true,
+  "type": "module",
+  "description": "Review pull requests with a model on your own hardware and post findings as inline comments",
+  "engines": {
+    "node": ">=22.19"
+  },
+  "scripts": {
+    "eval": "node tools/eval.mjs",
+    "test": "node --test test/post.test.mjs test/config.test.mjs test/rules.test.mjs test/watch.test.mjs test/workflow.test.mjs"
+  }
+}

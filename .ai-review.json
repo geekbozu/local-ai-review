@@ -1,0 +1,8 @@
+{
+  "rules": [
+    "README.md",
+    "docs/design.md"
+  ],
+  "severityFloor": "medium",
+  "thinking": "low"
+}

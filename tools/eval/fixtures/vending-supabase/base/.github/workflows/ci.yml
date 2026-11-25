@@ -1,0 +1,11 @@
+name: CI
+on:
+  pull_request:
+# The gate finishes in about two minutes, so twenty is generous.
+timeout-minutes: 20
+jobs:
+  test:
+    runs-on: [self-hosted, linux]
+    steps:
+      - uses: actions/checkout@v4
+      - run: pnpm test

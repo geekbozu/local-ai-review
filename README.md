@@ -1,0 +1,148 @@
+# local-ai-review
+
+A GitHub Action that reviews a pull request with a language model on your own hardware, and posts what it finds as
+inline comments. Advisory: it never blocks a merge.
+
+It is an agent, not a prompt pipeline. The model gets the diff, tools, and as many turns as it needs to follow a lead —
+reading a caller, checking a value, writing a benchmark — and reports findings through tools rather than prose. A
+separate step posts them, so the thing that comments never holds a credential the agent could read.
+
+## How it works
+
+```
+pull request → own workflow → checkout (fetch-depth: 0, no persisted credentials)
+             → pi agent in bubblewrap, model calls via a loopback proxy
+             → findings as JSONL → quoted-text anchoring → one PR review, inline comments
+```
+
+## What it needs
+
+This action calls an **OpenAI-compatible endpoint**: `/v1/chat/completions`, with tools. Anything that speaks that is fine —
+a local runtime, a llama.cpp server, a device on your desk, a hosted API.
+
+**1. The runner has to be able to reach it.** If the model is local, that is the whole problem, because a GitHub-hosted
+runner is a machine in GitHub's cloud and your model is on your network — `runs-on: ubuntu-latest` will sit there timing out
+against `http://192.168.x.x/v1`. So:
+
+- **Run a self-hosted runner on the same network.** Any Linux box that can curl the endpoint, including the model host itself
+  if it runs containers. Nothing leaves your network.
+- **Or put a tunnel in front of the model** (cloudflared, tailscale, a WireGuard peer) and use a hosted runner. You are
+  publishing an inference endpoint, so authentication and TLS are yours to add.
+- **Or serve the endpoint publicly.** A hosted runner reaches it like any other remote endpoint. The trade is the same as
+  above but larger: an inference server on the internet needs its own auth, rate limiting and monitoring, and a device that
+  serves one request at a time will queue the second caller.
+
+**2. The runner needs `bubblewrap`.** The agent runs inside it, and without it the job **fails** rather than running
+unsandboxed — a green run that quietly dropped its boundary is worse than a red one.
+
+```bash
+apt-get update && apt-get install -y bubblewrap
+bwrap --ro-bind / / true && echo ok          # needs CAP_SYS_ADMIN or unprivileged user namespaces
+```
+
+`ripgrep` and `fd` are recommended, not required: the agent's `grep` and `find` tools use them, and their absence makes it
+fall back to shell greps with no output ceiling (`apt-get install ripgrep fd-find`; Debian names the binary `fdfind`).
+
+Nothing else outbound is needed.
+
+## Set up
+
+```yaml
+jobs:
+  ai-review:
+    runs-on: [self-hosted, linux, arm64]
+    timeout-minutes: 90
+    continue-on-error: true                  # advisory
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: geekbozu/local-ai-review@<40-character-sha>   # pin a commit, not a tag
+        with:
+          base-ref: origin/${{ github.base_ref || 'main' }}
+          base-url: ${{ vars.AI_REVIEW_BASE_URL }}          # e.g. http://model-box/v1
+        env:
+          AI_REVIEW_API_KEY: ${{ secrets.AI_REVIEW_API_KEY }}
+```
+
+Then add a `.ai-review.json` at the repository root. No file, no review — that is the opt-in.
+
+## `.ai-review.json`
+
+Everything is optional; the defaults are the tool's opinion about a reviewer, not about your hardware.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `rules` | `["AGENTS.md", ".pi/rules/**/*.md"]` | Rule files, restored from the **base ref** so a pull request cannot rewrite what judges it |
+| `ignore` | `[]` | Paths the review will not comment on |
+| `instructions` | `[]` | Lines appended to the prompt verbatim |
+| `riskHints` | `[]` | Regexes that order attention; they do not scale effort |
+| `severityFloor` | `"low"` | Nothing below this is posted inline |
+| `confidenceFloor` | `7` | The agent's own 0–10 certainty; below this a finding is folded, not posted |
+| `maxTurns` | `60` | Runaway stop |
+| `contextBudget` | `0` (off) | Wrap up past this many tokens of context |
+| `providerTimeoutMs` | `300000` | How long the client waits for the model to say anything; `0` for no limit |
+| `timeBudgetMinutes` | `0` (off) | Wall clock |
+| `resultChars` | `64000` | Cap on one `read` result; `bash` is capped at 16000 in the extension |
+| `model` | — | Model id; the action input is the fallback |
+| `thinking` | `"low"` | `off` / `minimal` / `low` / `medium` / `high` |
+| `modelSettings` | see below | Everything the model call needs |
+
+`modelSettings` defaults: `contextWindow 262144`, `maxTokens 65536`, `temperature 0.6`, `topP 0.95`, `topK 20`,
+`minP 0`, `presencePenalty 0`, `frequencyPenalty 0`, `dryMultiplier 0`, `dryAllowedLength 0`, `repeatPenalty 1`,
+`reasoning true`, `thinkingFormat "openai"`.
+
+`frequencyPenalty` and `dry*` are sent only when non-zero, because a server that does not know a field may reject the
+request. They exist because some models loop; a looping model needs them set, and the model card will not say so.
+
+## Inputs
+
+| Input | Default | Meaning |
+|---|---|---|
+| `base-url` | — | OpenAI-compatible endpoint, **including `/v1`** (added if missing) |
+| `model` | — | Optional when `.ai-review.json` names one |
+| `base-ref` | `origin/main` | Ref to diff against |
+| `api-key-env` | `AI_REVIEW_API_KEY` | Name of the variable holding the key; the value is never written to disk |
+| `max-tokens` | — | Optional output ceiling per turn; the config's `maxTokens` applies when unset |
+| `time-budget-minutes` | `0` | Wall-clock backstop, `0` for off |
+| `upload-events` | `false` | Upload the raw event stream. It records tool results — file contents — so it belongs off in a public repository |
+| `pr-number` | event's | For manual runs |
+| `post` | `true` | `false` reviews without commenting |
+
+## Defaults and deployments
+
+A default here assumes a system that serves its own context at speed. Numbers that describe *your* hardware belong in
+your `.ai-review.json`, not in this repository:
+
+- a device that needs minutes to read a large prompt sets `providerTimeoutMs` and `contextBudget`;
+- a model that loops sets `temperature`, `presencePenalty`, `frequencyPenalty` and `dryMultiplier`;
+- a model that writes essays sets `maxTokens`.
+
+The defaults are the reviewer's own bounds: turn count, severity floor, confidence floor.
+
+## What the artifact holds
+
+`ai-review-run`: findings, the prompt, the notes (what was dropped and why) and a readable transcript. `ai-review-events`,
+as a separate artifact, holds the raw event stream and is **off** unless `upload-events` is `true`: tool results are
+file contents, and artifacts are as visible as the repository.
+
+## Versioning
+
+**Pin a commit**, not a tag. A tag can move, and a self-hosted runner caches the action under its ref, so a moved tag
+arrives at a time nobody chose.
+
+Releases are `MAJOR.MINOR.PATCH`. **0.1.0** is the current one: the action is usable and documented, and still young enough
+that a breaking change is plausible.
+
+## More
+
+- [`docs/design.md`](docs/design.md) — the measurements behind these choices
+- [`docs/security.md`](docs/security.md) — what the sandbox enforces, and what it does not
+- [`docs/model-testing.md`](docs/model-testing.md) — what was tried on real hardware, what settings each model needed, and what did not work
+- [`docs/reference/tiiny.md`](docs/reference/tiiny.md) — the model device this was built against: loading models, reading
+  its real settings, and the traps
+- `tools/eval/` — the harness and fixtures behind every number in `docs/model-testing.md`: `npm run eval -- --fixture vending-supabase --settings tools/eval/settings/qwen36-standard.json --runs 3`

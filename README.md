@@ -15,25 +15,23 @@ pull request → own workflow → checkout (fetch-depth: 0, no persisted credent
              → findings as JSONL → quoted-text anchoring → one PR review, inline comments
 ```
 
-## Requirements on the runner
+## What it needs
 
-**The runner has to be able to reach your model.** This is a local-model action, and the usual GitHub setup cannot help
-you: a GitHub-hosted runner is a machine in GitHub's cloud, your model is a box on your network, and there is no route
-between them. A workflow built on `runs-on: ubuntu-latest` will time out trying to reach `http://192.168.x.x/v1`.
+This action calls an **OpenAI-compatible endpoint**: `/v1/chat/completions`, with tools. Anything that speaks that is fine —
+a local runtime, a llama.cpp server, a device on your desk, a hosted API.
 
-Three ways to satisfy it, in the order most people should consider them:
+**1. The runner has to be able to reach it.** If the model is local, that is the whole problem, because a GitHub-hosted
+runner is a machine in GitHub's cloud and your model is on your network — `runs-on: ubuntu-latest` will sit there timing out
+against `http://192.168.x.x/v1`. So:
 
-| | What it means | Trade |
-|---|---|---|
-| **Self-hosted runner on the same network** (recommended) | A GitHub Actions runner on a machine that can reach the model. Any spare Linux box, or the model host itself if it runs a container runtime. | You maintain a runner; the model stays private. |
-| Tunnel from the model host | `cloudflared`, tailscale, a WireGuard peer — the endpoint becomes reachable from a public runner. | The model is exposed, however narrowly. Put authentication in front of it and keep TLS on. |
-| Public endpoint | The model is genuinely internet-facing. | Not recommended for a device that serves one request at a time: you have published an inference endpoint with no rate limit but its own. |
+- **Run a self-hosted runner on the same network.** Any Linux box that can curl the endpoint, including the model host itself
+  if it runs containers. This is the intended setup.
+- **Or put a tunnel in front of the model** (cloudflared, tailscale, a WireGuard peer) and use a hosted runner. Workable, but
+  you have just published an inference endpoint: put authentication in front of it, and keep TLS on.
+- **A genuinely public endpoint** is not what this is for. One device serving one request at a time, exposed to the internet,
+  has no rate limit but its own.
 
-The rest of this document assumes the first, and **Set up** below is written for it. The self-hosted runner is also what
-makes `providerTimeoutMs` and `contextBudget` meaningful: a slow device needs both raised, and a cloud runner would give
-up before the model finished reading.
-
-**`bubblewrap` must be installed.** The agent runs inside it, and without it the job **fails** rather than running
+**2. The runner needs `bubblewrap`.** The agent runs inside it, and without it the job **fails** rather than running
 unsandboxed — a green run that quietly dropped its boundary is worse than a red one.
 
 ```bash
@@ -41,11 +39,10 @@ apt-get update && apt-get install -y bubblewrap
 bwrap --ro-bind / / true && echo ok          # needs CAP_SYS_ADMIN or unprivileged user namespaces
 ```
 
-`ripgrep` and `fd` are **recommended**, not required: the agent's `grep` and `find` tools use them, and their absence
-makes it fall back to shell greps with no output ceiling. `apt-get install ripgrep fd-find` (Debian names the binary
-`fdfind`).
+`ripgrep` and `fd` are recommended, not required: the agent's `grep` and `find` tools use them, and their absence makes it
+fall back to shell greps with no output ceiling (`apt-get install ripgrep fd-find`; Debian names the binary `fdfind`).
 
-The runner must be able to reach your model endpoint. Nothing else outbound is needed.
+Nothing else outbound is needed.
 
 ## Set up
 

@@ -25,11 +25,12 @@ runner is a machine in GitHub's cloud and your model is on your network — `run
 against `http://192.168.x.x/v1`. So:
 
 - **Run a self-hosted runner on the same network.** Any Linux box that can curl the endpoint, including the model host itself
-  if it runs containers. This is the intended setup.
-- **Or put a tunnel in front of the model** (cloudflared, tailscale, a WireGuard peer) and use a hosted runner. Workable, but
-  you have just published an inference endpoint: put authentication in front of it, and keep TLS on.
-- **A genuinely public endpoint** is not what this is for. One device serving one request at a time, exposed to the internet,
-  has no rate limit but its own.
+  if it runs containers. Nothing leaves your network.
+- **Or put a tunnel in front of the model** (cloudflared, tailscale, a WireGuard peer) and use a hosted runner. You are
+  publishing an inference endpoint, so authentication and TLS are yours to add.
+- **Or serve the endpoint publicly.** A hosted runner reaches it like any other remote endpoint. The trade is the same as
+  above but larger: an inference server on the internet needs its own auth, rate limiting and monitoring, and a device that
+  serves one request at a time will queue the second caller.
 
 **2. The runner needs `bubblewrap`.** The agent runs inside it, and without it the job **fails** rather than running
 unsandboxed — a green run that quietly dropped its boundary is worse than a red one.

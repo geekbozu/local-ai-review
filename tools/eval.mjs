@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
 import { device } from "./eval/device.mjs";
 import { metrics } from "./eval/metrics.mjs";
+import { buildFixture, fixtureDir } from "./eval/fixture.mjs";
 
 const host = (p) => p.split("\\").join("/");
 
@@ -96,30 +97,7 @@ const releaseLock = () => {
 process.on("exit", releaseLock);
 process.on("SIGINT", () => process.exit(130));
 
-// A fixture is `base/` and `head/` plus `expect.json`: the harness commits base, then head, so every run sees the same
-// diff and can be scored against the defects that are known to be in it. A real repository is fine for smoke tests and
-// useless for comparison — its diff moves between sweeps.
-const buildFixture = (name) => {
-  const dir = join(dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "eval", "fixtures", name);
-  const work = mkdtempSync(join(tmpdir(), "fixture-"));
-  const copy = (from, to) =>
-    execFileSync("cp", ["-a", `${from}/.`, to], { stdio: "ignore" }) ??
-    null;
-  const git = (...args) => execFileSync("git", ["-C", work, ...args], { stdio: "ignore" });
-  copy(join(dir, "base"), work);
-  git("init", "-q", "-b", "main");
-  git("config", "user.email", "eval@example.com");
-  git("config", "user.name", "eval");
-  git("add", "-A");
-  git("commit", "-qm", "base");
-  git("update-ref", "refs/remotes/origin/main", "HEAD");
-  copy(join(dir, "head"), work);
-  git("add", "-A");
-  git("commit", "-qm", "change");
-  return { work, expect: JSON.parse(readFileSync(join(dir, "expect.json"), "utf8")) };
-};
-
-const expectations = fixture ? JSON.parse(readFileSync(join(dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1")), "eval", "fixtures", fixture, "expect.json"), "utf8")) : [];
+const expectations = fixture ? JSON.parse(readFileSync(join(fixtureDir(fixture), "expect.json"), "utf8")) : [];
 const here = dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"));
 mkdirSync(dirname(out), { recursive: true });
 
@@ -229,19 +207,20 @@ for (const combo of combos) {
       `${row.combo.padEnd(18)} r${run}  ${String(row.turns).padStart(3)} turns  ${String(row.seconds).padStart(4)}s  ` +
         `rep ${row.reports} wd ${row.withdraws} upd ${row.updates} list ${row.lists}  ` +
         `kept ${row.findings}  distinct ${row.distinct}/${row.calls}  ` +
-        (expectations.length ? `found ${row.found}/${row.of}  ` : "") + `${row.error ? `ERROR ${row.error.slice(0, 90)}` : row.answered ? "" : "NO ANSWER"}`,
+        (expectations.length ? `found ${row.found}/${row.of}  fp ${row.falsePositives ?? 0}  ` : "") + `${row.error ? `ERROR ${row.error.slice(0, 90)}` : row.answered ? "" : "NO ANSWER"}`,
     );
   }
 }
 
 // The summary a sweep exists for: which combination finished, and which one kept anything.
-console.log("\ncombo              runs  avg turns  avg secs  kept  distinct/total");
+console.log("\ncombo              runs  avg turns  avg secs  kept   fp  distinct/total");
 for (const combo of combos) {
   const mine = rows.filter((r) => r.combo === (combo.name || "unnamed"));
   if (!mine.length) continue;
   const avg = (k) => (mine.reduce((n, r) => n + r[k], 0) / mine.length).toFixed(1);
   console.log(
     `${(combo.name || "unnamed").padEnd(18)} ${String(mine.length).padStart(4)}  ${avg("turns").padStart(9)}  ` +
+      `${avg("falsePositives").padStart(3)}  ` +
       `${avg("seconds").padStart(8)}  ${avg("findings").padStart(4)}  ` +
       `${(mine.reduce((n, r) => n + r.distinct, 0) / mine.length).toFixed(0)}/${(mine.reduce((n, r) => n + r.calls, 0) / mine.length).toFixed(0)}`,
   );

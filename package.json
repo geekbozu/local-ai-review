@@ -8,6 +8,6 @@
   },
   "scripts": {
     "eval": "node tools/eval.mjs",
-    "test": "node --test test/post.test.mjs test/config.test.mjs test/rules.test.mjs test/watch.test.mjs test/workflow.test.mjs test/eval-metrics.test.mjs test/eval-falsepositives.test.mjs test/fixture-busy.test.mjs"
+    "test": "node --test test/post.test.mjs test/config.test.mjs test/rules.test.mjs test/watch.test.mjs test/workflow.test.mjs test/eval-metrics.test.mjs test/eval-falsepositives.test.mjs test/fixture-busy.test.mjs test/fixture-python.test.mjs"
   }
 }

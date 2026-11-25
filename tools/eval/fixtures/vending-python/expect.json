@@ -1,0 +1,77 @@
+[
+  {
+    "id": "swallowed-transfer-error",
+    "path": "vending/payouts.py",
+    "severity": "high",
+    "codeDefect": true,
+    "any": [
+      "bare except",
+      "except:",
+      "swallow",
+      "traceback",
+      "returns none",
+      "silently"
+    ],
+    "why": "transfer() catches the post failure with a bare except and falls through to None, so settle_batch reads receipt_id off None and a dropped transfer leaves a hole in the ledger with no trace of the error"
+  },
+  {
+    "id": "mutable-default-argument",
+    "path": "vending/restock.py",
+    "severity": "high",
+    "codeDefect": true,
+    "any": [
+      "refills=[]",
+      "mutable",
+      "default argument",
+      "shared",
+      "accumulat",
+      "previous call",
+      "second call"
+    ],
+    "why": "refills=[] is created once at import and shared by every call, so the second machine's refill plan comes back carrying the first machine's lines"
+  },
+  {
+    "id": "shell-injection-label",
+    "path": "vending/labels.py",
+    "severity": "high",
+    "codeDefect": true,
+    "any": [
+      "shell=true",
+      "shell",
+      "inject",
+      "product_id",
+      "f-string",
+      "untrusted"
+    ],
+    "why": "product_id from the supplier feed is interpolated into an f-string passed to subprocess.run with shell=True, so a product id containing a subshell is executed by the label printer"
+  },
+  {
+    "id": "none-into-arithmetic",
+    "path": "vending/ledger.py",
+    "severity": "high",
+    "codeDefect": true,
+    "any": [
+      ".get(",
+      "unit_cents",
+      "typeerror",
+      "pricing",
+      "returns none",
+      "is none"
+    ],
+    "why": "the three chained .get() calls default to None when the export has no pricing block, and sum() raises TypeError instead of reporting zero revenue"
+  },
+  {
+    "id": "unawaited-task",
+    "path": "vending/labels.py",
+    "severity": "medium",
+    "codeDefect": true,
+    "any": [
+      "create_task",
+      "never awaited",
+      "not awaited",
+      "await",
+      "fire and forget"
+    ],
+    "why": "the task returned by create_task is dropped, so a fetch that fails raises nowhere, is never retrieved, and can be collected before it runs"
+  }
+]

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseDiff, resolveQuote, touchedPaths } from "../src/lib/diff.mjs";
+import { parseDiff, resolveQuote, resolveLine, touchedPaths } from "../src/lib/diff.mjs";
 import { buildReview, existingMarkers, summarise } from "../src/lib/posting.mjs";
 
 const DIFF = `diff --git a/src/services/scores.ts b/src/services/scores.ts
@@ -299,3 +299,80 @@ test("a finding below the confidence floor is folded, not posted", () => {
   assert.ok(dropped.some((d) => d.confidence === 4), "the folded entry keeps the number, so the reader can see why");
 });
 
+
+test("a quote carrying the diff's own prefix still resolves", () => {
+  const plus = resolveQuote(
+    files,
+    "src/services/scores.ts",
+    "+  const { data } = await supabase.from('Auditions').select('*, Events(*)').eq('judge_id', judgeId)",
+  );
+  assert.equal(plus.line, 25);
+  const minus = resolveQuote(files, "src/services/scores.test.ts", "-  expect(result).toBeDefined()");
+  assert.equal(minus.line, 3);
+});
+
+test("an explicit line anchors when it names exactly one line", () => {
+  const added = resolveLine(files, "src/services/scores.ts", 25);
+  assert.equal(added.side, "added");
+  const context = resolveLine(files, "src/services/scores.ts", 21);
+  assert.equal(context.side, "context");
+  assert.equal(resolveLine(files, "src/services/scores.ts", 999), null);
+  assert.equal(resolveLine(files, "src/services/scores.ts", "nope"), null);
+});
+
+test("a line that is a different line on each side of the hunk refuses rather than guesses", () => {
+  // New-file line 20 is the added .single() line; old-file line 20 is the removed .maybeSingle() line. One number,
+  // two lines: the same failure as an ambiguous quote.
+  assert.equal(resolveLine(files, "src/services/scores.ts", 20), null);
+});
+
+test("a finding with only a line posts when the line is unambiguous and is dropped when it is not", () => {
+  const { posted, dropped } = buildReview({
+    findings: [
+      { path: "src/services/scores.ts", line: 25, severity: "high", body: "Event-scoped read without an event_id filter." },
+      { path: "src/services/scores.ts", line: 20, severity: "high", body: "ambiguous on both sides of the hunk" },
+    ],
+    diff: DIFF,
+  });
+  assert.deepEqual(
+    posted.map((p) => p.line),
+    [25],
+  );
+  assert.equal(dropped.length, 1);
+});
+
+test("a resolvable quote wins over an explicit line, which is only the fallback", () => {
+  const quoted = buildReview({ findings: [{ ...findings[1], line: 99 }], diff: DIFF });
+  assert.deepEqual(
+    quoted.posted.map((p) => p.line),
+    [25],
+  );
+
+  const fallback = buildReview({
+    findings: [{ path: "src/services/scores.ts", quote: "  made up line", line: 25, severity: "high", body: "cannot quote, can point" }],
+    diff: DIFF,
+  });
+  assert.deepEqual(
+    fallback.posted.map((p) => p.line),
+    [25],
+  );
+  assert.equal(fallback.dropped.length, 0);
+});
+
+// The cross-run identity is path + resolved line + severity + the text of the line. Anchoring by quote on one run and
+// by line number on the next has to land on the same marker, or the same defect posts twice.
+test("a finding anchored by line and the same finding anchored by quote do not post twice", () => {
+  const quoted = buildReview({ findings: [findings[1]], diff: DIFF }).posted[0];
+  const lined = buildReview({
+    findings: [{ path: "src/services/scores.ts", line: 25, severity: "high", body: "the same defect, anchored by number" }],
+    diff: DIFF,
+  }).posted[0];
+  assert.equal(lined.marker, quoted.marker);
+
+  // A quote still carrying the diff prefix is the same finding again, on the same line.
+  const prefixed = buildReview({
+    findings: [{ ...findings[1], quote: `+ ${findings[1].quote}` }],
+    diff: DIFF,
+  }).posted[0];
+  assert.equal(prefixed.marker, quoted.marker);
+});

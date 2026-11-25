@@ -42,12 +42,23 @@ export default function (pi) {
     name: "report_finding",
     label: "Report finding",
     description:
-      "Record one review finding, anchored to a line of the change. Quote the line exactly as it appears in the file, " +
-      "character for character: the quote is how the comment is placed, so a paraphrase cannot be posted. Returns an " +
-      "id you can use with update_finding or withdraw_finding.",
+      "Record one review finding, anchored to a line of the change. Quote the line exactly as it appears in the file — " +
+      "the quote is how the comment is placed, so a paraphrase cannot be posted. If you can see the line but cannot " +
+      "reproduce it character for character, pass its new-file line number instead; a quote that resolves always wins " +
+      "over a line number. Returns an id you can use with update_finding or withdraw_finding.",
     parameters: Type.Object({
       path: Type.String({ description: "File path exactly as it appears in the diff, e.g. src/services/events.ts" }),
-      quote: Type.String({ description: "The exact text of the line, copied from the file, no line number" }),
+      quote: Type.Optional(
+        Type.String({ description: "The exact text of the line, copied from the file, no line number. Omit only when you cannot reproduce it — then pass line." }),
+      ),
+      line: Type.Optional(
+        Type.Integer({
+          minimum: 1,
+          description:
+            "The new-file line number of the change, used only when the quote is omitted or does not resolve. An " +
+            "ambiguous number — one that is a different line on each side of a hunk — is refused, not guessed.",
+        }),
+      ),
       severity: SEVERITY,
       confidence: Type.Integer({
         minimum: 0,
@@ -62,6 +73,20 @@ export default function (pi) {
       body: Type.String({ description: "One or two sentences: what is wrong and what it costs" }),
     }),
     async execute(_toolCallId, params) {
+      if (!params.quote && params.line === undefined) {
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                "a finding needs an anchor: quote the line exactly as it appears in the file, or give its new-file " +
+                "line number if you cannot reproduce the text.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
       // Already in the list: measured, one run reported the same .gitignore finding five times because identity was
       // only checked against *withdrawn* entries, so duplicates stacked up and then had to be withdrawn one by one.
       const same = items.find((item) => identity(item) === identity(params));
@@ -171,6 +196,7 @@ export default function (pi) {
       id: Type.String({ description: "The id report_finding returned, e.g. f3" }),
       path: Type.Optional(Type.String({ description: "Replacement path" })),
       quote: Type.Optional(Type.String({ description: "Replacement quote, still character for character" })),
+      line: Type.Optional(Type.Integer({ minimum: 1, description: "Replacement new-file line number" })),
       severity: Type.Optional(SEVERITY),
       confidence: Type.Optional(Type.Integer({ minimum: 0, maximum: 10, description: "Replacement confidence, 0-10" })),
       body: Type.Optional(Type.String({ description: "Replacement body" })),
@@ -183,7 +209,7 @@ export default function (pi) {
           isError: true,
         };
       }
-      for (const key of ["path", "quote", "severity", "confidence", "body"]) {
+      for (const key of ["path", "quote", "line", "severity", "confidence", "body"]) {
         if (params[key] !== undefined) item[key] = params[key];
       }
       flush();

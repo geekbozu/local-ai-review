@@ -22,7 +22,7 @@ export function parseDiff(text) {
     const raw = stripCr(line);
     const header = FILE_HEADER.exec(raw);
     if (header) {
-      file = { path: normalise(header[2]), added: [], context: [], removed: 0 };
+      file = { path: normalise(header[2]), added: [], context: [], removed: [] };
       files.set(file.path, file);
       hunkSeen = false;
       continue;
@@ -48,8 +48,9 @@ export function parseDiff(text) {
       continue;
     }
     if (raw.startsWith("-")) {
-      oldLine++;
-      file.removed += 1;
+      // Removed lines keep their old-file numbers: an explicit line anchor has to know when a number names two
+      // different lines at once, one on each side of the hunk.
+      file.removed.push({ line: oldLine++, text: normalise(raw.slice(1)) });
       continue;
     }
     file.context.push({ line: newLine++, text: normalise(raw.startsWith(" ") ? raw.slice(1) : raw) });
@@ -77,13 +78,36 @@ export function resolveQuote(files, path, quote) {
   const wanted = normalise(String(quote).split("\n")[0]);
   if (!wanted) return null;
 
-  const exact = candidates.filter((c) => normalise(c.text) === wanted);
-  if (exact.length === 1) return exact[0];
-  if (exact.length > 1) return null;
+  const match = (wanted) => {
+    const exact = candidates.filter((c) => normalise(c.text) === wanted);
+    if (exact.length === 1) return exact[0];
+    if (exact.length > 1) return null;
+    const loose = wanted.trimStart();
+    const trimmed = candidates.filter((c) => normalise(c.text).trimStart() === loose);
+    return trimmed.length === 1 ? trimmed[0] : null;
+  };
 
-  const loose = wanted.trimStart();
-  const trimmed = candidates.filter((c) => normalise(c.text).trimStart() === loose);
-  return trimmed.length === 1 ? trimmed[0] : null;
+  // A model quoting from `git diff` output carries the diff's own prefix (`+  const x = …`), which never matches the
+  // file. The quote as given is tried first; one prefix and the single space after it are the only tolerance beyond
+  // whitespace.
+  return match(wanted) || (/^[+-] /.test(wanted) ? match(wanted.slice(2)) : null);
+}
+
+// An explicit line number is weaker evidence than a quote, so it is only trusted when it names exactly one line. A
+// number that is also a removed line on the minus side of the hunk — the model may have counted the old file — is two
+// different lines at once when their text differs, and that refuses rather than guesses.
+export function resolveLine(files, path, line) {
+  const file = files.get(normalise(path));
+  if (!file) return null;
+  const n = Number(line);
+  if (!Number.isInteger(n) || n < 1) return null;
+  const hits = [
+    ...file.added.filter((l) => l.line === n).map((l) => ({ ...l, side: "added" })),
+    ...file.context.filter((l) => l.line === n).map((l) => ({ ...l, side: "context" })),
+  ];
+  if (hits.length !== 1) return null;
+  const clash = file.removed.some((l) => l.line === n && normalise(l.text) !== hits[0].text);
+  return clash ? null : hits[0];
 }
 
 // Every file the diff touches. The coverage gate asks which of these the agent never opened, so a review that
@@ -98,8 +122,8 @@ export function diffStats(files) {
   const perFile = [...files.values()].map((f) => ({
     path: f.path,
     added: f.added.length,
-    removed: f.removed,
+    removed: f.removed.length,
   }));
-  const total = perFile.reduce((n, f) => ({ added: n.added + f.added, removed: n.removed + f.removed }), { added: 0, removed: 0 });
+  const total = perFile.reduce((n, f) => ({ added: n.added + f.added, removed: n.removed + f.removed.length }), { added: 0, removed: 0 });
   return { perFile, total };
 }

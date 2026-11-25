@@ -16,6 +16,7 @@ Numbers are only comparable within one fixture, prompt and preset.
 ## Method
 
 - Each row is a whole `.ai-review.json`; the harness writes it into the fixture and runs the action in the container, so the sandboxed path is what is measured.
+- `tokPerSec` is aggregate throughput — `outputTokens / wall`, prefill and tool time included — not a decode rate.
 - `found` = defects reported, of six. `kept` = findings the model left in its list. `wall` = seconds.
 - `contextBudget` is **64k for every row**. A row measured at a different budget is not comparable: one model
   measured at 16k scored a defect higher than the same model at 64k with nothing else changed, which is variance,

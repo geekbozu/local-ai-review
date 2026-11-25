@@ -132,8 +132,10 @@ file contents, and artifacts are as visible as the repository.
 ## Versioning
 
 **Pin a commit**, not a tag. A tag can move, and a self-hosted runner caches the action under its ref, so a moved tag
-arrives at a time nobody chose. The development `0.0.N` tags recorded commit counts and have been deleted. The first
-release is **0.1.0**: the action is usable and documented, and still young enough that a breaking change is plausible.
+arrives at a time nobody chose.
+
+Releases are `MAJOR.MINOR.PATCH`. **0.1.0** is the current one: the action is usable and documented, and still young enough
+that a breaking change is plausible.
 
 ## More
 

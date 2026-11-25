@@ -110,7 +110,7 @@ request. They exist because some models loop; a looping model needs them set, an
 | `max-tokens` | — | Optional output ceiling per turn; the config's `maxTokens` applies when unset |
 | `time-budget-minutes` | `0` | Wall-clock backstop, `0` for off |
 | `upload-events` | `false` | Upload the raw event stream. It records tool results — file contents — so it belongs off in a public repository |
-| `pr-number` | event's | For manual runs |
+| `pr-number` | event's | The PR to post to on a manual run |
 | `post` | `true` | `false` reviews without commenting |
 
 ## Defaults and deployments

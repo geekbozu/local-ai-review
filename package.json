@@ -8,6 +8,9 @@
   },
   "scripts": {
     "eval": "node tools/eval.mjs",
-    "test": "node --test test/post.test.mjs test/config.test.mjs test/rules.test.mjs test/watch.test.mjs test/workflow.test.mjs"
+    "test": "node --test test/post.test.mjs test/config.test.mjs test/rules.test.mjs test/watch.test.mjs test/workflow.test.mjs test/action.test.mjs"
+  },
+  "devDependencies": {
+    "js-yaml": "^5.5.0"
   }
 }

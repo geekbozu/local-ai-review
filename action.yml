@@ -51,8 +51,8 @@ inputs:
     default: ""
   post:
     description: >-
-      Set to false to review without posting (useful for a first run). A workflow_dispatch run never posts, whatever
-      this says: it has no pull request to comment on.
+      Set to false to review without posting (useful for a first run). A run without a pull request to post to - a
+      workflow_dispatch that did not pass `pr-number` - never posts, whatever this says.
     required: false
     default: "true"
 
@@ -170,11 +170,11 @@ runs:
         TRANSCRIPT_FILE: ${{ runner.temp }}/ai-review-transcript.md
       run: node "${{ github.action_path }}/src/render-transcript.mjs"
 
-    # workflow_dispatch has no pull_request in the event, so PR_NUMBER renders empty and post.mjs throws after the
-    # whole review - after the model time is spent. Gating here turns the dispatch into a stated dry run instead, and
-    # the notice below says so; a composite action cannot give an input a per-event default, so this is the honest shape.
+    # post.mjs throws when PR_NUMBER renders empty, which happens on any trigger without a pull_request in the event -
+    # not just workflow_dispatch - and only after the whole review has run. So the gate is not the event name but whether
+    # a PR to post to exists: the event's, or an explicit pr-number, which makes the input work again on a manual run.
     - name: Post
-      if: steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true' && inputs.post == 'true' && steps.review.outputs.skip != 'true' && github.event_name != 'workflow_dispatch'
+      if: steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true' && inputs.post == 'true' && steps.review.outputs.skip != 'true' && (inputs.pr-number != '' || github.event.pull_request.number != '')
       shell: bash
       env:
         GITHUB_TOKEN: ${{ github.token }}
@@ -189,12 +189,12 @@ runs:
         FROZEN_DIR: ${{ runner.temp }}/ai-review-frozen
       run: node "${{ github.action_path }}/src/post.mjs"
 
-    # A dispatch that asked to post must not end looking like a review that found nothing. It says, in the run's own
-    # output, that it ran but did not post - the one thing a dry run has to state for itself.
+    # A dispatch that asked to post but gave no pr-number must not end looking like a review that found nothing. The
+    # notice claims only what is certain - nothing was posted - because whether the review itself ran is not visible here.
     - name: Say it did not post
-      if: github.event_name == 'workflow_dispatch' && inputs.post == 'true' && steps.review.outputs.skip != 'true' && steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true'
+      if: github.event_name == 'workflow_dispatch' && inputs.post == 'true' && inputs.pr-number == '' && steps.review.outputs.skip != 'true' && steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true'
       shell: bash
-      run: 'echo "::notice::workflow_dispatch run: dry run - the review ran, nothing was posted. Posting needs a pull_request event."'
+      run: 'echo "::notice::workflow_dispatch run: a dispatch has no pull request to comment on by itself, so nothing was posted. Pass pr-number to post."'
 
     # After Post, unlike a plain log upload, because posting is what writes the dropped findings into the notes.
     # `always()` keeps the cancelled run, which is the one worth reading. The event stream is deliberately not in this

@@ -6,3 +6,4 @@ out/
 # Eval settings are per-machine: the example ships, the rest are ours.
 tools/eval/settings/*.json
 !tools/eval/settings/example.json
+node_modules/

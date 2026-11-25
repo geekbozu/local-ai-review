@@ -29,7 +29,7 @@ Numbers are only comparable within one fixture, prompt and preset.
 | model | preset | found | kept | wall |
 |---|---|---|---|---|
 | **Qwen3.6-35B-A3B** | instruct: 0.7 / 0.8 / presence 1.5 | **5.00** (6 / 5 / 4) | 5.3 | 296 s |
-| `qwen38-27b-unleashed` | backend defaults | **5.00** (4 / 6) | 5.5 | 310 s |
+| `qwen38-27b-unleashed` | backend defaults | **5.00** (4 / 5) | 5.5 | 310 s |
 | `tiel-coder-35b` | backend defaults | 4.60 (5 / 5 / 4 / 5 / 4) | 4.7 | **136 s** |
 | `inkling-2-mini-96k` | `reasoning_effort: low`, 16k budget | 4.60 (6 / 4 / 5 / 4 / 4) | 5.0 | 176 s |
 | Qwen3.6-35B-A3B-Turbo | instruct: 0.7 / 0.8 / presence 1.5 | 4.33 (4 / 5 / 4) | 5.0 | **224 s** |
@@ -52,9 +52,7 @@ Unusable:
 
 | model | what happens |
 |---|---|
-| `LFM2.5-8B-A1B` | emits `[ls(path='/work')]` between `<|tool_call_start|>` tokens as prose; the server has no parser for that format |
-| `google/gemma-4-26B-A4B-it` | token soup under the agent, one run burning all 8,192 output tokens; a direct non-streaming request calls tools correctly |
-| `ornith-ai/Ornith-1.5-35B-A3B-Turbo` | reads everything, files one finding, 500-900 s. `tiel-coder-35b` is a re-tune of it and scores 4.6 |
+| `ornith-ai/Ornith-1.5-35B-A3B-Turbo` | reads everything, files one finding, 500-900 s |
 
 ## Per-defect, older five-defect fixture, ~19 runs
 
@@ -66,16 +64,6 @@ Unusable:
 | `pull_request_target` | 5 of 19 | flaky |
 | missing `await` | 7 of 19 | — |
 | strict single-row read | 3 of 19 | — |
-
-## Settings that changed the score
-
-| setting | measured |
-|---|---|
-| `contextBudget` 64k vs 16k | `inkling-2-mini`, same effort: 4.0 → **5.0**, in half the turns |
-| `reasoning_effort` medium vs low | `inkling-2-mini`: 4.0 both, 45% more wall time and 50% more turns at medium |
-| device defaults vs card preset, 9B | `temperature 1.0 / presence 1.5` (device) 2.67 → card presets 3.0-3.33 |
-| device defaults vs card preset, 35B | no recall difference; 448 s vs 292 s |
-| thinking on vs off | no recall difference on any model tested |
 
 ## Measuring
 

@@ -43,6 +43,7 @@ that holds the credential.**
 | D14 | The bound that ends a run is **enforced**, not requested | A wrap-up nudge fired at turn 60 and the run continued to 120 |
 | D15 | Output is **posted through a sanitiser**: no raw HTML, images, mentions or forged markers, and caps on length | Markdown is not inert, and a dropped finding is still model output |
 | D16 | **Defaults describe a reviewer; deployments describe hardware** | A hardware-tuned default silently shortens every other deployment |
+| D17 | A rule change in the diff is **acknowledged, not filed**: one line on what the rule now requires, no severity; a finding only when it contradicts another rule, grants an exemption the repository forbids, cannot fire, or contradicts its own frontmatter. The acknowledgement rides the closing message (run log and transcript) because the findings pipeline has no severity-free channel | Rules are restored from the base ref (D12), so the diff is the only place the reviewer sees the change that governs every future review — but a clean rule-only PR must not manufacture a defect to justify having read it |
 
 Model measurements and the sampler rows that came from them: [`model-testing.md`](model-testing.md).
 

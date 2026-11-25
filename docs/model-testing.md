@@ -27,35 +27,40 @@ Numbers are only comparable within one fixture, prompt and preset.
 
 ## Results
 
-`vending-supabase`, shipped prompt:
+`vending-supabase`, six defects, shipped prompt, 64k context, two runs unless stated.
 
-| model | preset | found | kept | wall |
+| model | preset | found | mean | wall |
 |---|---|---|---|---|
-| **Qwen3.6-35B-A3B** | instruct: 0.7 / 0.8 / presence 1.5 | **5.00** (6 / 5 / 4) | 5.3 | 296 s |
-| `qwen38-27b-unleashed` | backend defaults | **5.00** (4 / 5) | 5.5 | 310 s |
-| `tiel-coder-35b` | backend defaults | 4.60 (5 / 5 / 4 / 5 / 4) | 4.7 | **136 s** |
-| `inkling-2-mini-96k` | `reasoning_effort: low` | 4.00 (3 / 5) | 4.5 | 145 s |
-| Qwen3.6-35B-A3B-Turbo | instruct: 0.7 / 0.8 / presence 1.5 | 4.33 (4 / 5 / 4) | 5.0 | **224 s** |
-| Qwen3.5-9B-Turbo | thinking, general: 1.0 / 0.95 / 1.5 | 3.33 (4 / 3 / 3) | 4.0 | 176 s |
-| Qwen3.5-9B-Turbo | instruct, general: 0.7 / 0.8 / 1.5 | 3.00 (4 / 2 / 3) | 3.0 | **136 s** |
-| `Mellum2.1` | card: temperature 1.0 | 3.00 (3 / 3) | 3.0 | **70 s** |
-| `LFM2.5-2.6B` | card | 2.50 (3 / 2) | 2.0 | 84 s |
-| `LFM2-1.2B-tool` | card | 0.00 (0 / 0) | 0.0 | 34 s |
+| **Qwen3.6-35B-Turbo** | card instruct: 0.7 / 0.8 / presence 1.5 | 5 · 5 | **5.0** | 222 s |
+| **tiel-coder-35b** | backend defaults | 6 · 4 | **5.0** | 204 s |
+| inkling-2-mini-96k | `reasoning_effort: low` | 4 · 5 | 4.5 | 256 s |
+| Ornith-1.5-35B-Turbo | card row | 3 · 6 | 4.5 | 677 s |
+| Qwen3.6-35B (standard) | card instruct: 0.7 / 0.8 / presence 1.5 | 4 · 4 | 4.0 | 236 s |
+| Qwen3.6-35B (standard) | 0.6 / 0.95 / presence 0 | 4 · 3 | 3.5 | 236 s |
+| GLM-4.7-Flash | card agentic: 0.7 / 1.0 | 3 · 4 | 3.5 | 509 s |
+| Qwen3.5-9B-Turbo | thinking, general: 1.0 / 0.95 / 1.5 (3 runs) | 4 · 3 · 3 | 3.33 | 176 s |
+| Qwen3.5-9B-Turbo | instruct, general: 0.7 / 0.8 / 1.5 (3 runs) | 4 · 2 · 3 | 3.00 | **136 s** |
+| Mellum2.1 | card: temperature 1.0 | 2 · 4 | 3.00 | 141 s |
+| Qwen3-Coder-Next (80B, 3B active) | card row | 4 · 2 | 3.00 | 256 s |
+| LFM2.5-2.6B | card | 2 · 1 | 1.50 | 124 s |
 
-Not on the current fixture or prompt, so not comparable:
+### What to run
 
-| model | measured | note |
-|---|---|---|
-| Qwen3-Coder-Next (80B, 3B active) | 4 of 5, older fixture, 209 s | never re-run here |
-| Qwen3.6-35B-A3B | 5 of 5, older fixture, 0.6 / 0.95, 448 s | sampler comparison |
-| GLM-4.7-Flash | 3 of 6, 305 s, GitHub-rubric prompt | different prompt |
-| Ornith-1.5-35B | 2 of 5, older fixture, 868 s | see below |
+- **A gate that catches the most: `Qwen3.6-35B-Turbo`** on its card's instruct preset. Five of six, ~4 minutes. The
+  standard build of the same model is a defect behind at the same speed, so the Turbo build is the one to load.
+- **A cheaper gate: `Qwen3.5-9B-Turbo`**, three of six in ~2½ minutes on a tenth of the memory.
+- **Not recommended:** `LFM2.5-2.6B` (1.5 of 6) and `GLM-4.7-Flash` (3.5 of 6 in 8 minutes).
 
-Unusable:
+### Settings that changed nothing
 
-| model | what happens |
-|---|---|
-| `ornith-ai/Ornith-1.5-35B-A3B-Turbo` | reads everything, files one finding, 500-900 s |
+Measured on this fixture, each with two or more runs:
+
+- **Thinking on vs off** — no recall difference on the 9B, the 35B, Mellum2.1 or Ornith; the 35B and Mellum were
+  40–100% slower with it on.
+- **`enable_thinking: false` on Ornith is accepted and ignored**: with the flag set it still wrote 52k and 74k characters of
+  reasoning, and throughput stayed at ~38 tok/s in every arm. There is no thinking control on this build for that model.
+- **`preserve_thinking`** was not tested: it only matters if thinking can be switched, and on this build it cannot.
+- **Card preset vs the older sampler on the 35B** — 4.0 against 3.5, inside the run-to-run spread.
 
 ## Measuring
 

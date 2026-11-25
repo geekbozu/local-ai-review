@@ -17,6 +17,9 @@ Numbers are only comparable within one fixture, prompt and preset.
 
 - Each row is a whole `.ai-review.json`; the harness writes it into the fixture and runs the action in the container, so the sandboxed path is what is measured.
 - `found` = defects reported, of six. `kept` = findings the model left in its list. `wall` = seconds.
+- `contextBudget` is **64k for every row**. A row measured at a different budget is not comparable: one model
+  measured at 16k scored a defect higher than the same model at 64k with nothing else changed, which is variance,
+  not a setting worth tuning per model.
 - Two to five runs per row; the run count is in the `found` column. Identical runs of one model span one to two defects, so a single run cannot rank two models.
 - Every score on quantised local inference is a floor for that model, not a verdict.
 - Wall times move with whatever else the machine is doing: the same settings were measured at 116 s and 326 s.
@@ -31,7 +34,7 @@ Numbers are only comparable within one fixture, prompt and preset.
 | **Qwen3.6-35B-A3B** | instruct: 0.7 / 0.8 / presence 1.5 | **5.00** (6 / 5 / 4) | 5.3 | 296 s |
 | `qwen38-27b-unleashed` | backend defaults | **5.00** (4 / 5) | 5.5 | 310 s |
 | `tiel-coder-35b` | backend defaults | 4.60 (5 / 5 / 4 / 5 / 4) | 4.7 | **136 s** |
-| `inkling-2-mini-96k` | `reasoning_effort: low`, 16k budget | 4.60 (6 / 4 / 5 / 4 / 4) | 5.0 | 176 s |
+| `inkling-2-mini-96k` | `reasoning_effort: low` | 4.00 (3 / 5) | 4.5 | 145 s |
 | Qwen3.6-35B-A3B-Turbo | instruct: 0.7 / 0.8 / presence 1.5 | 4.33 (4 / 5 / 4) | 5.0 | **224 s** |
 | Qwen3.5-9B-Turbo | thinking, general: 1.0 / 0.95 / 1.5 | 3.33 (4 / 3 / 3) | 4.0 | 176 s |
 | Qwen3.5-9B-Turbo | instruct, general: 0.7 / 0.8 / 1.5 | 3.00 (4 / 2 / 3) | 3.0 | **136 s** |

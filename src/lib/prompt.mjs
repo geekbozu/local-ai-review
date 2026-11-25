@@ -141,11 +141,20 @@ If the sentence does not tell a maintainer what to do next, it costs them time t
 
 ## Reporting
 
-Report once, at the end of the pass, by filing each defect with report_finding: path, exact quoted line, severity,
-severity: critical | high | medium | low; nothing below ${severityFloor} is posted, so do not pad.
-- body: one or two
-sentences naming the defect and what it costs. The filings are the deliverable;
-each body stands alone; one defect, one filing — merge duplicates before you write.
+Report once, at the end of the pass, by filing each defect with report_finding.
+
+For each defect:
+
+- path: the file, as it appears in the change
+- quote: the exact text of the line, copied character for character — a paraphrase cannot be placed and is dropped
+- line: optional, the line's number in the new file. Use it only when you cannot copy the text exactly; a quote wins
+- severity: critical | high | medium | low; nothing below ${severityFloor} is posted, so do not pad
+- confidence: 0-10, how sure you are that this is a real defect. 9-10 you traced it in the code in front of you and can
+  name what triggers it; 7-8 very likely, resting on an assumption you can state; 5-6 plausible but unconfirmed; below
+  that is a hunch. Only 7 and above is posted — a low number is not a failure, it is the difference between a review and
+  a rumour
+- body: one or two sentences naming the defect and what it costs. Each body stands alone; one defect, one filing —
+  merge duplicates before you write.
 
 ## When you are finished
 

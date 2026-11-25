@@ -134,3 +134,17 @@ test("only failures the action cannot fix are environmental", async () => {
   for (const m of environmentalMessages) assert.equal(environmental(m), true, m);
   for (const m of ours) assert.equal(environmental(m), false, m);
 });
+
+// The shipped prompt lost its confidence field entirely when a severityFloor sentence was spliced into the wrong line:
+// "severity," appeared twice and the reporting contract had no confidence bullet at all. The model was never told the
+// field it is gated on. This asserts the contract is whole, not that it is worded any particular way.
+test("the reporting contract names every field a finding is filed with", async () => {
+  const { buildPrompt } = await import("../src/lib/prompt.mjs");
+  const prompt = buildPrompt({ touched: ["a.ts"], baseRef: "origin/main", severityFloor: "medium" });
+  const block = prompt.slice(prompt.indexOf("## Reporting"), prompt.indexOf("## When you are finished"));
+  for (const field of ["path:", "quote:", "line:", "severity:", "confidence:", "body:"]) {
+    assert.ok(block.includes(field), `the reporting block must name ${field}`);
+  }
+  assert.ok(block.includes("nothing below medium is posted"), "the configured floor reaches the model");
+  assert.equal((block.match(/severity:/g) || []).length, 1, "severity is described once, not twice");
+});

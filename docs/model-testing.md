@@ -70,36 +70,43 @@ another, and do not pick a preset by its label: the one Qwen labels "for reasoni
 
 ## A shared box (llama-swap)
 
-A second machine serves models over llama-swap. It is someone's desktop, so it is not a measurement rig: it is idle or it is
-busy playing games, and a run that lands during a game measures the game. Treat anything measured there as indicative, and
-re-measure on dedicated hardware before it changes a recommendation.
+A second machine serves models over llama-swap on a 4060 Ti with Q4_K_M quants. It is someone's desktop: idle or gaming,
+nothing in between. Two consequences, both real:
 
-Measured there, two runs each, same fixture and prompt:
+- **Wall times there are only comparable within one batch.** The same model and settings took 116 s and 326 s in different
+  batches.
+- **Every score is a floor for that model**, because the quant is not the model: Q4_K_M of a 12B-active expert mix on
+  8 GB of VRAM measures the quant and the card as much as the weights.
 
-| model | found | wall | note |
-|---|---|---|---|
-| `LFM2.5-2.6B` | 2.5 of 6 | 84 s | drives the tools correctly; the cheapest gate measured anywhere |
-| `LFM2-1.2B-tool` | 0 of 6 | 34 s | calls tools, cannot review — its card says not to use it for programming |
-| `LFM2.5-8B-A1B` | blocked | - | emits `<|tool_call_start|>[ls(path=...)]<|tool_call_end|>` as prose; needs a tool-call parser on the server |
+Recall is the column to trust; time is indicative.
 
-Probed on the same box and **not** measured, because it is not idle hardware:
+| model | preset | found | runs | wall |
+|---|---|---|---|---|
+| `qwen38-27b-unleashed` | swap defaults | **5.0** | 4 · 6 | 310 s |
+| `tiel-coder-35b` (an Ornith re-tune) | swap defaults | 4.6 | 5 · 5 · 4 · 5 · 4 | **136 s** |
+| `inkling-2-mini-96k` | `reasoning_effort: low`, 16k budget | 4.6 | 6 · 4 · 5 · 4 · 4 | 176 s |
+| `Mellum2.1` | card: temp 1.0 | 3.0 | 3 · 3 | **70 s** |
+| `LFM2.5-2.6B` | card | 2.5 | 3 · 2 | 84 s |
+| `LFM2-1.2B-tool` | card | 0.0 | 0 · 0 | 34 s |
+| `LFM2.5-8B-A1B` | - | blocked | - | needs a tool-call parser |
 
-| model | tool calls | first response |
-|---|---|---|
-| `qwen38-27b-unleashed` | yes | 23 s |
-| `qwen9b` | yes | 21 s |
-| `qwen9b-r.c` | yes | 2 s |
-| `tiel-coder-35b` (an Ornith re-tune) | yes | 35 s |
-| `ornith15-35b` | yes | 42 s |
-| `mellium2-thinking` | untested | - |
+Read against Qwen3.6's 5.0 in 296 s on the Pocket: at ten minutes a review, **recall decides and the fast pair are a
+fallback for a busy box**, not the default.
 
-All five that answered already call tools, so nothing there needs the LFM parser work. The first response includes the model
-load; none of those numbers is generation speed.
+### Two levers that are not about the model
 
-**Decision models are not chat models.** `clef-flash` and the `d1-*` entries answer on the decisions protocol
-(`/v1/systemone`), not `/v1/chat/completions` — a chat request to one hangs rather than failing, which is what happened when
-one was probed as if it were a reviewer. They judge, they do not review, and they belong to `tools like pi-warden`, not to
-this action.
+- **`contextBudget` is a quality lever, not just a cost one.** `inkling-2-mini` at a 64k budget scored 3 · 5 (4.0); at 16k,
+  on the same effort, 6 · 4 (5.0) — one more defect and slightly faster, in half the turns. A generous allowance invites
+  the agent to read whole files and drift; a tight one forces narrow reads. Every number in the tables above was measured
+  at a budget chosen by us, not by the model.
+- **`reasoning_effort` is not a quality lever.** On Inkling, `medium` matched `low` on recall (4.0 both) for 45% more wall
+  time and 50% more turns. Turning thinking up for a harder task is the intuitive move and it did not pay here.
+- **Inkling is controlled by `reasoning_effort`, not `enable_thinking`.** It exposes no thinking toggle; the first attempt
+  ran past twelve minutes because the prompt sent no effort parameter and the model chose its own. `thinkingFormat:
+  "openai"` is the right one for it — the only model here where that format is correct rather than a fallback.
+
+**Decision models are not chat models.** `clef-flash` and the `d1-*` entries answer on `/v1/systemone`, not
+`/v1/chat/completions`; a chat request to one hangs rather than failing. They judge, they do not review.
 
 ## What every model misses, and why
 

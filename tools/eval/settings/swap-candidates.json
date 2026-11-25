@@ -1,45 +1,73 @@
 [
   {
-    "name": "mellium2-thinking (neutral preset)",
+    "name": "Mellum2.1 (card: temp 1.0)",
     "config": {
       "model": "mellium2-thinking",
-      "thinking": "off",
-      "contextBudget": 24000,
+      "thinking": "high",
+      "contextBudget": 114000,
       "modelSettings": {
-        "contextWindow": 32768,
+        "contextWindow": 131072,
         "maxTokens": 16384,
         "minP": 0,
         "frequencyPenalty": 0,
-        "temperature": 0.6,
+        "reasoning": true,
+        "thinkingFormat": "qwen-chat-template",
+        "chatTemplateKwargs": {
+          "enable_thinking": true
+        },
+        "temperature": 1,
         "topP": 0.95,
         "topK": 20,
         "presencePenalty": 0,
-        "repeatPenalty": 1,
-        "reasoning": false,
-        "thinkingFormat": "none",
-        "chatTemplateKwargs": {}
+        "repeatPenalty": 1
       }
     }
   },
   {
-    "name": "tiel-coder-35b (neutral preset)",
+    "name": "tiel-coder-35b (swap defaults)",
     "config": {
       "model": "tiel-coder-35b",
-      "thinking": "off",
-      "contextBudget": 24000,
+      "thinking": "high",
+      "contextBudget": 48000,
       "modelSettings": {
-        "contextWindow": 32768,
+        "contextWindow": 131072,
         "maxTokens": 16384,
-        "minP": 0,
+        "minP": 0.05,
         "frequencyPenalty": 0,
-        "temperature": 0.6,
+        "reasoning": true,
+        "thinkingFormat": "qwen-chat-template",
+        "chatTemplateKwargs": {
+          "enable_thinking": true
+        },
+        "temperature": 0.8,
         "topP": 0.95,
-        "topK": 20,
+        "topK": 40,
         "presencePenalty": 0,
-        "repeatPenalty": 1,
-        "reasoning": false,
-        "thinkingFormat": "none",
-        "chatTemplateKwargs": {}
+        "repeatPenalty": 1
+      }
+    }
+  },
+  {
+    "name": "qwen38-27b-unleashed (swap defaults)",
+    "config": {
+      "model": "qwen38-27b-unleashed",
+      "thinking": "high",
+      "contextBudget": 48000,
+      "modelSettings": {
+        "contextWindow": 131072,
+        "maxTokens": 16384,
+        "minP": 0.05,
+        "frequencyPenalty": 0,
+        "reasoning": true,
+        "thinkingFormat": "qwen-chat-template",
+        "chatTemplateKwargs": {
+          "enable_thinking": true
+        },
+        "temperature": 0.8,
+        "topP": 0.95,
+        "topK": 40,
+        "presencePenalty": 0,
+        "repeatPenalty": 1
       }
     }
   }

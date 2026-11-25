@@ -1,0 +1,24 @@
+[
+  {
+    "name": "inkling-2-mini-96k (effort low, 16k budget)",
+    "config": {
+      "model": "inkling-2-mini-96k",
+      "thinking": "low",
+      "contextBudget": 16000,
+      "modelSettings": {
+        "contextWindow": 98304,
+        "maxTokens": 16384,
+        "minP": 0.05,
+        "frequencyPenalty": 0,
+        "temperature": 0.8,
+        "topP": 0.95,
+        "topK": 40,
+        "presencePenalty": 0,
+        "repeatPenalty": 1,
+        "reasoning": true,
+        "thinkingFormat": "openai",
+        "chatTemplateKwargs": {}
+      }
+    }
+  }
+]

@@ -111,8 +111,6 @@ each setting bought are in [`docs/model-testing.md`](../model-testing.md).
 | `ornith-ai/Ornith-1.5-35B-A3B-Turbo` | not a reviewer: reads everything, files one finding, 500-900 s |
 | `google/gemma-4-26B-A4B-it` | **unusable here**: token soup under the agent, though a direct request calls tools correctly |
 
-Models measured on a self-hosted llama-swap box are on their own page: [`llama-swap.md`](llama-swap.md).
-
 ### General models: none measured yet
 
 This table is deliberately empty. A general-purpose chat model is not the same instrument as a code-tuned one, and the

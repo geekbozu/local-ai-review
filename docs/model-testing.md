@@ -33,7 +33,8 @@ divide tokens by wall time either — read `timings` from the response or `n_don
 Only four rows are measured on the current fixture and the shipped prompt. Everything else predates one or both, and is
 listed separately rather than mixed in — the earlier table in this document did mix them, which made it wrong.
 
-**`vending-supabase`, six defects, shipped prompt, three runs each:**
+**`vending-supabase`, six defects, shipped prompt.** Two to five runs each, on whichever local box was free; the
+run count is in the `found` column. Every score on quantised local inference is a floor for that model, not a verdict.
 
 | model | preset (from its card) | found | kept | wall |
 |---|---|---|---|---|
@@ -41,6 +42,12 @@ listed separately rather than mixed in — the earlier table in this document di
 | Qwen3.6-35B-A3B-Turbo | same | 4.33 (4 / 5 / 4) | 5.0 | **224 s** |
 | Qwen3.5-9B-Turbo | thinking, general: 1.0 / 0.95 / presence 1.5 | 3.33 (4 / 3 / 3) | 4.0 | 176 s |
 | Qwen3.5-9B-Turbo | instruct, general: 0.7 / 0.8 / presence 1.5 | 3.00 (4 / 2 / 3) | 3.0 | **136 s** |
+| `qwen38-27b-unleashed` | backend defaults | 5.00 (4 / **6**) | 5.5 | 310 s |
+| `tiel-coder-35b` | backend defaults | 4.60 (5 / 5 / 4 / 5 / 4) | 4.7 | **136 s** |
+| `inkling-2-mini-96k` | `reasoning_effort: low`, 16k budget | 4.60 (6 / 4 / 5 / 4 / 4) | 5.0 | 176 s |
+| `Mellum2.1` | card: temperature 1.0 | 3.00 (3 / 3) | 3.0 | **70 s** |
+| `LFM2.5-2.6B` | card | 2.50 (3 / 2) | 2.0 | 84 s |
+| `LFM2-1.2B-tool` | card | 0.00 (0 / 0) | 0.0 | 34 s |
 
 **Earlier measurements — different fixture, different prompt. Not comparable, kept for the record:**
 
@@ -57,6 +64,8 @@ listed separately rather than mixed in — the earlier table in this document di
 - **The 9B is the cheap gate** — three of six in two to three minutes, on a tenth of the memory.
 - **GLM-4.7 is flat and slow** wherever it has been measured, and has not earned a row on the current settings.
 - **Ornith is not a reviewer** at any setting: it reads everything, files one finding, and takes 500-900 s.
+- **`LFM2.5-8B-A1B` cannot run yet**: it emits `[ls(path='/work')]` between `<|tool_call_start|>` tokens as prose, and
+  the server has no parser for that format. The model is willing; the serving config is the gap.
 - **gemma-4-26B-A4B-it cannot be used here.** A direct non-streaming request calls tools correctly, but under the agent
   five runs in six returned token soup (`<find<|"|>} <thought`, one burning all 8192 output tokens). The device's template
   is gemma's own and parses `<|channel>` correctly, so the prompt is rendered into something gemma cannot parse.
@@ -68,12 +77,17 @@ where the card's presets stay under 2.5k. On the **35B** the same mistake cost n
 found five of six — and only 150 s. Capacity decides which knobs matter, so do not generalise a preset from one model to
 another, and do not pick a preset by its label: the one Qwen labels "for reasoning tasks" scored worst of the four.
 
-## A second machine
+## Settings that are not about the model
 
-Models were also measured on a self-hosted llama-swap box (a desktop with one 4060 Ti, Q4_K_M quants). Its results, its
-caveats — wall times that are only comparable within a batch, and quants that make every score a floor — are on
-[`docs/reference/llama-swap.md`](reference/llama-swap.md), kept separate from the Pocket so the two are not read as one
-table.
+Two levers were measured and are worth more than any ranking:
+
+- **`contextBudget` is a quality lever.** `inkling-2-mini` at a 64k budget scored 4.0; at 16k, on the same reasoning effort,
+  5.0 — one more defect, slightly faster, in half the turns. A generous allowance invites whole-file reads and drift; a tight
+  one forces narrow reads.
+- **`reasoning_effort` is not.** `medium` matched `low` on recall for 45% more wall time and 50% more turns.
+
+Wall times move with whatever else the machine is doing: the same model and settings were measured at 116 s and 326 s in
+different batches. **Recall is the column to trust; time is indicative.**
 
 ## What every model misses, and why
 

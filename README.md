@@ -143,8 +143,6 @@ release tag will be `1.0.0` when it is cut.
 - [`docs/design.md`](docs/design.md) — the measurements behind these choices
 - [`docs/security.md`](docs/security.md) — what the sandbox enforces, and what it does not
 - [`docs/model-testing.md`](docs/model-testing.md) — what was tried on real hardware, what settings each model needed, and what did not work
-- [`docs/reference/tiiny.md`](docs/reference/tiiny.md) — the Tiiny Pocket this was built against: loading models,
-  reading its real settings, and the traps
-- [`docs/reference/llama-swap.md`](docs/reference/llama-swap.md) — the same for a self-hosted llama-swap box, and the models
-  measured on it
+- [`docs/reference/tiiny.md`](docs/reference/tiiny.md) — the model device this was built against: loading models, reading
+  its real settings, and the traps
 - `tools/eval/` — the harness and fixtures behind every number in `docs/model-testing.md`: `npm run eval -- --fixture vending-supabase --settings tools/eval/settings/qwen36-standard.json --runs 3`

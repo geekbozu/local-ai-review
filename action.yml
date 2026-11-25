@@ -50,7 +50,9 @@ inputs:
     required: false
     default: ""
   post:
-    description: Set to false to review without posting (useful for a first run).
+    description: >-
+      Set to false to review without posting (useful for a first run). A workflow_dispatch run never posts, whatever
+      this says: it has no pull request to comment on.
     required: false
     default: "true"
 
@@ -168,8 +170,11 @@ runs:
         TRANSCRIPT_FILE: ${{ runner.temp }}/ai-review-transcript.md
       run: node "${{ github.action_path }}/src/render-transcript.mjs"
 
+    # workflow_dispatch has no pull_request in the event, so PR_NUMBER renders empty and post.mjs throws after the
+    # whole review - after the model time is spent. Gating here turns the dispatch into a stated dry run instead, and
+    # the notice below says so; a composite action cannot give an input a per-event default, so this is the honest shape.
     - name: Post
-      if: steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true' && inputs.post == 'true' && steps.review.outputs.skip != 'true'
+      if: steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true' && inputs.post == 'true' && steps.review.outputs.skip != 'true' && github.event_name != 'workflow_dispatch'
       shell: bash
       env:
         GITHUB_TOKEN: ${{ github.token }}
@@ -183,6 +188,13 @@ runs:
         AI_REVIEW_NOTES: ${{ runner.temp }}/ai-review-notes.txt
         FROZEN_DIR: ${{ runner.temp }}/ai-review-frozen
       run: node "${{ github.action_path }}/src/post.mjs"
+
+    # A dispatch that asked to post must not end looking like a review that found nothing. It says, in the run's own
+    # output, that it ran but did not post - the one thing a dry run has to state for itself.
+    - name: Say it did not post
+      if: github.event_name == 'workflow_dispatch' && inputs.post == 'true' && steps.review.outputs.skip != 'true' && steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true'
+      shell: bash
+      run: 'echo "::notice::workflow_dispatch run: dry run - the review ran, nothing was posted. Posting needs a pull_request event."'
 
     # After Post, unlike a plain log upload, because posting is what writes the dropped findings into the notes.
     # `always()` keeps the cancelled run, which is the one worth reading. The event stream is deliberately not in this

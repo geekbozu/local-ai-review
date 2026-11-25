@@ -54,17 +54,6 @@ Unusable:
 |---|---|
 | `ornith-ai/Ornith-1.5-35B-A3B-Turbo` | reads everything, files one finding, 500-900 s |
 
-## Per-defect, older five-defect fixture, ~19 runs
-
-| defect | missed | note |
-|---|---|---|
-| unescaped interpolation into markup | 18 of 19, then 3 of 6 | fixed by naming the class in the prompt |
-| stale comment above a changed value | 18 of 19, then 6 of 6 | seen and declined ("not a functional defect") |
-| document the change falsified, outside the diff | most runs on both fixtures | needs a step that opens it |
-| `pull_request_target` | 5 of 19 | flaky |
-| missing `await` | 7 of 19 | — |
-| strict single-row read | 3 of 19 | — |
-
 ## Measuring
 
 ```bash

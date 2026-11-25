@@ -1,6 +1,18 @@
 name: AI review
 description: Review a pull request with a local model on your own hardware, and post the findings as inline comments. Repo-agnostic; a repository opts in with a .ai-review.json at its root.
 
+outputs:
+  skip:
+    description: >-
+      "true" when the review could not run for a reason outside the action's control: the model is not loaded, the endpoint
+      is unreachable, or the client timed out. The step exits 0 for these, so a consumer can turn them into a stated skip
+      rather than a red X that says nothing about the action. A failure the action can fix — a missing sandbox, an invalid
+      config, a model that read nothing — is still a failure.
+    value: ${{ steps.review.outputs.skip }}
+  skip-reason:
+    description: One line saying why the review was skipped.
+    value: ${{ steps.review.outputs.skip-reason }}
+
 inputs:
   base-ref:
     description: The ref to diff against, e.g. origin/main.
@@ -121,6 +133,7 @@ runs:
         fi
 
     - name: Review
+      id: review
       if: steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true'
       shell: bash
       env:
@@ -156,7 +169,7 @@ runs:
       run: node "${{ github.action_path }}/src/render-transcript.mjs"
 
     - name: Post
-      if: steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true' && inputs.post == 'true'
+      if: steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true' && inputs.post == 'true' && steps.review.outputs.skip != 'true'
       shell: bash
       env:
         GITHUB_TOKEN: ${{ github.token }}

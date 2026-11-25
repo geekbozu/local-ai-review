@@ -3,7 +3,7 @@
 // Nothing here knows which repository it is in.
 
 import { spawn, execFileSync } from "node:child_process";
-import { writeFileSync, readFileSync, existsSync, rmSync, lstatSync, mkdirSync, readdirSync, cpSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync, rmSync, lstatSync, mkdirSync, readdirSync, cpSync, appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, delimiter } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -25,7 +25,7 @@ const PI_RULES = process.env.PI_RULES || "git:github.com/code-yeongyu/pi-rules@9
 import { riskHints } from "./lib/triage.mjs";
 
 // A checkout the runner owns can be owned by someone else when a previous run chowned it, and git then refuses with
-// "detected dubious ownership" — which reads as "not a git repository". We are the process that checked this tree out,
+// "detected dubious ownership" â€” which reads as "not a git repository". We are the process that checked this tree out,
 // so trust it explicitly rather than depend on who owns it.
 const git = (args, dir = process.cwd()) =>
   new Promise((resolve, reject) => {
@@ -40,11 +40,11 @@ const git = (args, dir = process.cwd()) =>
 // A 45-minute job that prints nothing for 45 minutes is indistinguishable from a wedged one, and the only evidence
 // afterwards was a JSONL file on a runner that no longer exists. This prints as it goes and the same numbers go to
 // the step summary, so a log answers "was it working" without a re-run.
-// Enough consecutive failures to call the endpoint dead rather than flaky. Three spaced ≈ a minute of trying.
+// Enough consecutive failures to call the endpoint dead rather than flaky. Three spaced â‰ˆ a minute of trying.
 const MAX_MODEL_ERRORS = 3;
 
 
-// The workflow. `options` is the seam tests use — a stand-in client, or a dry run that stops before the model. It is a
+// The workflow. `options` is the seam tests use â€” a stand-in client, or a dry run that stops before the model. It is a
 // function argument and never an environment variable: a flag that can switch the sandbox off is a flag that eventually
 // gets set, and nothing in the environment should be able to do that.
 export async function run(options = {}) {
@@ -139,8 +139,8 @@ export async function run(options = {}) {
     instructions: config.instructions,
   });
   console.error(
-    `[ai-review] model ${model} (from ${config.model ? "config" : "the action input"}) · ` +
-      `${touched.length} file(s), ${hints.highRisk.length} in a high-risk area — budget ${config.maxTurns} turns — ` +
+    `[ai-review] model ${model} (from ${config.model ? "config" : "the action input"}) Â· ` +
+      `${touched.length} file(s), ${hints.highRisk.length} in a high-risk area â€” budget ${config.maxTurns} turns â€” ` +
       `rules from base: ${rules.restored.length} restored, ${rules.removed.length} removed`,
   );
 
@@ -149,7 +149,7 @@ export async function run(options = {}) {
   const agentDir = seedAgentDir();
   process.env.PI_CODING_AGENT_DIR = agentDir;
   // The sandbox hides `_work/_actions`, which is where these extensions live, so they are copied to the one directory
-  // the child can read and write. The alternative — leaving the action's own checkout visible — hands the agent the
+  // the child can read and write. The alternative â€” leaving the action's own checkout visible â€” hands the agent the
   // reviewer's source to read.
   const extDir = join(agentDir, "extensions");
   mkdirSync(extDir, { recursive: true });
@@ -186,8 +186,8 @@ export async function run(options = {}) {
     "--no-extensions", // the checkout must not supply executable extensions
     "--thinking", config.thinking,
     // Plain tool names replace the whole selection, and a custom tool that is not named is silently absent.
-    // codemode lets the agent do several lookups in one turn — grep a name across four files, filter the result,
-    // then read the two lines that mattered — instead of a round trip each. On a device that serves one request at a
+    // codemode lets the agent do several lookups in one turn â€” grep a name across four files, filter the result,
+    // then read the two lines that mattered â€” instead of a round trip each. On a device that serves one request at a
     // time, turns are the expensive unit.
     "--tools", "read,bash,edit,write,grep,find,ls,codemode,report_finding,list_findings,update_finding,withdraw_finding",
     // Standing instructions belong in the system prompt, where they are weighted more heavily than a user message.
@@ -250,7 +250,7 @@ export async function run(options = {}) {
     argv: [piBin, ...args],
     workspace,
     // The two files, not the directory. A writable runner.temp let the agent delete or replace events.jsonl, which is
-    // what the posted coverage report is computed from — a review that names the files it never opened, forged.
+    // what the posted coverage report is computed from â€” a review that names the files it never opened, forged.
     writable: [agentDir, findingsFile, notesFile],
     envForChild: childEnv,
   });
@@ -270,7 +270,7 @@ export async function run(options = {}) {
   writeFileSync(transcriptFile, renderTranscript(Buffer.concat(events).toString("utf8").split(String.fromCharCode(10))));
 
   // A run that produces nothing must say why in the log. Without this, "0 findings" is indistinguishable from
-  // "the endpoint refused, the model was not loaded, or the model refused" — and all three read as a clean review.
+  // "the endpoint refused, the model was not loaded, or the model refused" â€” and all three read as a clean review.
   const decoded = Buffer.concat(events)
     .toString("utf8")
     .split(String.fromCharCode(10))
@@ -321,7 +321,7 @@ export async function run(options = {}) {
   const toolCalls = decoded.filter((e) => e.type === "tool_execution_start").length;
   if (toolCalls === 0 && findings === 0) {
     throw new Error(
-      "the model read nothing and reported nothing: no tool call was made, so this is not a clean review � " +
+      "the model read nothing and reported nothing: no tool call was made, so this is not a clean review -- " +
         `check the endpoint serves this model (${failures.length} failure(s), last stop reason ${decoded.at(-1)?.message?.stopReason ?? "unknown"})`,
     );
   }
@@ -365,8 +365,8 @@ export async function run(options = {}) {
     );
   }
 
-  // Nothing the run created should outlive it. The proxy is unref'd, so it cannot hold the process open — that was the
-  // difference between a review that finishes and a job that hangs until it is cancelled — and the per-job agent dir is
+  // Nothing the run created should outlive it. The proxy is unref'd, so it cannot hold the process open â€” that was the
+  // difference between a review that finishes and a job that hangs until it is cancelled â€” and the per-job agent dir is
   // removed rather than left in the runner's temp for the next job to find.
   try {
     proxy.server.close();
@@ -384,8 +384,32 @@ export async function run(options = {}) {
 
 // pathToFileURL, not string surgery: a path with a space or a `#` in it makes the hand-built form disagree with
 // import.meta.url, and the runner then silently does nothing. post.mjs has used this form for the same reason.
+
+// Failures this action cannot fix: the device is down, the model is not loaded, the network dropped, or the client ran out
+// of patience. A red X for one of these is a claim about the action that is not true -- and it trains a reader to ignore
+// red, which is how a real failure gets missed. The workflow decides what to do with "skipped"; the action only says so.
+const ENVIRONMENTAL = [
+  /is not loaded/i,
+  /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|EAI_AGAIN|ETIMEDOUT|ECONNRESET/i,
+  /socket hang up|fetch failed|other side closed|premature close|terminated/i,
+  /timed out|was aborted/i,
+  /the model never answered/i,
+];
+
+export const environmental = (message) => ENVIRONMENTAL.some((re) => re.test(String(message || "")));
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   run().catch((err) => {
+    const message = err?.message || String(err);
+    if (environmental(message)) {
+      const reason = message.replace(/\s+/g, " ").trim().slice(0, 300);
+      // An output is how the workflow turns this into a stated skip rather than a silent green.
+      if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `skip=true
+skip-reason=${reason}
+`);
+      console.error(`::notice::AI review skipped, outside the action's control: ${reason}`);
+      process.exit(0);
+    }
     console.error(err);
     process.exit(1);
   });

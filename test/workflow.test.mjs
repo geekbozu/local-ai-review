@@ -113,3 +113,24 @@ test("a model that reads nothing and reports nothing fails the run", async () =>
     /read nothing and reported nothing/,
   );
 });
+
+// Measured on a real board: a model that was not loaded answered 404, and the run went red even though nothing in the action
+// was wrong. A consumer needs to be able to say "skipped" for that, and "failed" for a missing sandbox or a bad config.
+test("only failures the action cannot fix are environmental", async () => {
+  const { environmental } = await import("../src/review.mjs");
+  const environmentalMessages = [
+    '404: {"message":"\\"Qwen/Qwen3.6-35B-A3B\\" is not loaded."}',
+    "fetch failed",
+    "Request timed out.: This operation was aborted",
+    "socket hang up",
+    "the model never answered: 404",
+  ];
+  const ours = [
+    "the model read nothing and reported nothing: no tool call was made",
+    "bubblewrap is not installed on this runner",
+    ".ai-review.json: severityFloor must be one of",
+    "no endpoint: set AI_REVIEW_BASE_URL",
+  ];
+  for (const m of environmentalMessages) assert.equal(environmental(m), true, m);
+  for (const m of ours) assert.equal(environmental(m), false, m);
+});

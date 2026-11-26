@@ -63,3 +63,12 @@ export async function settleBatch(
   }
   return { batchId: first.id, ...summarize(payable), receipts };
 }
+
+// Close of day: rows pass the floor before settling, so a day of sub-floor
+// takings settles nothing instead of paying in single-vend receipts.
+export async function settleDay(
+  ledger: { transfer(operatorId: string, amountCents: number): Promise<{ receiptId: string }> },
+  rows: Payout[],
+): Promise<SettledBatch> {
+  return settleBatch(ledger, pickPayouts(rows));
+}

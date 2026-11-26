@@ -6,14 +6,10 @@
     "codeDefect": true,
     "any": [
       "first.id",
-      "paid[0]",
       "payable[0]",
       "empty batch",
-      "may be empty",
-      "can be empty",
-      "no payouts",
-      "undefined"
+      "no payouts"
     ],
-    "why": "settleBatch reads payable[0].id with no guard, so closing a day where every payout is below the floor or for zero cents throws on undefined instead of settling nothing"
+    "why": "settleDay settles whatever pickPayouts lets through, so a day where every payout is below the floor or for zero cents reaches settleBatch as an empty batch, and settleBatch reads payable[0].id with no guard - it throws on undefined instead of settling nothing"
   }
 ]

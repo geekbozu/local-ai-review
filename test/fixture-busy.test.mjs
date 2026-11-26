@@ -1,13 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { buildFixture } from "../tools/eval/fixture.mjs";
 
 // The harness's own git init/commit path, run against the fixture: if this passes, `--fixture vending-busy` builds the
 // same two-commit history every other fixture is scored from.
 const { work, expect } = buildFixture("vending-busy");
+test.after(() => rmSync(work, { recursive: true, force: true }));
 const git = (...args) => execFileSync("git", ["-C", work, ...args], { encoding: "utf8" });
 const numstat = git("diff", "--numstat", "refs/remotes/origin/main").trim().split("\n").map((l) => l.split("\t"));
 

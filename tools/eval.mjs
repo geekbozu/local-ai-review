@@ -16,7 +16,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync, appendFileSync, mkdirSync, mkdtempSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve, dirname } from "node:path";
+import { join, resolve, dirname, basename } from "node:path";
 import { device } from "./eval/device.mjs";
 
 const host = (p) => p.split("\\").join("/");
@@ -222,6 +222,9 @@ for (const combo of combos) {
     // Per run, so a run cannot be polluted by the previous one's working tree.
     const built = fixture ? buildFixture(fixture) : null;
     const target = built.work;
+    // Sibling of the work tree, never inside it: the agent can read anything under /work.
+    const io = join(dirname(target), `.io-${basename(target)}`);
+    mkdirSync(io, { recursive: true });
     // "deviceDefaults": true means "whatever this box runs when nobody configures it" — the row worth measuring first,
     // and one that cannot be transcribed wrong because it is read from the device.
     const settings = combo.config.deviceDefaults
@@ -262,24 +265,27 @@ for (const combo of combos) {
         // --privileged, and it is what makes a sweep test the sandboxed path rather than a bypass.
         "--cap-add", "SYS_ADMIN", "--cap-add", "SYS_PTRACE",
         "--security-opt", "seccomp=unconfined", "--security-opt", "apparmor=unconfined",
-        // One mount. Output goes inside it, so there is no second bind to get wrong — and Docker wants a forward-slash
-        // path, which is what `host` is.
+        // Two mounts, and the second one is the point: the agent's cwd is /work, so anything the harness writes inside it
+        // is a file the agent can read. A run found its predecessor's transcript there — `events.jsonl` carries the last
+        // review of the same diff — and concluded "the change was already reviewed by someone else (or I am in a
+        // simulation)" before reporting nothing. Output goes to a sibling directory instead.
         "-v", `${host(target)}:/work`,
+        "-v", `${host(io)}:/io`,
         "-v", `${host(join(here, ".."))}:/action:ro`,
         "-w", "/work",
         "-e", `AI_REVIEW_BASE_URL=${process.env.AI_REVIEW_BASE_URL}`,
         "-e", `AI_REVIEW_API_KEY=${process.env.AI_REVIEW_API_KEY}`,
         "-e", `BASE_REF=${base}`,
         "-e", "GITHUB_WORKSPACE=/work",
-        "-e", "RUNNER_TEMP=/work/.eval",
-        "-e", "FINDINGS_FILE=/work/.eval/findings.jsonl",
-        "-e", "EVENTS_FILE=/work/.eval/events.jsonl",
-        "-e", "NOTES_FILE=/work/.eval/notes.txt",
-        "-e", "PROMPT_FILE=/work/.eval/prompt.txt",
-        "-e", "TRANSCRIPT_FILE=/work/.eval/transcript.md",
-        "-e", "PI_CODING_AGENT_DIR=/work/.eval/pi-cache",
+        "-e", "RUNNER_TEMP=/io",
+        "-e", "FINDINGS_FILE=/io/findings.jsonl",
+        "-e", "EVENTS_FILE=/io/events.jsonl",
+        "-e", "NOTES_FILE=/io/notes.txt",
+        "-e", "PROMPT_FILE=/io/prompt.txt",
+        "-e", "TRANSCRIPT_FILE=/io/transcript.md",
+        "-e", "PI_CODING_AGENT_DIR=/io/pi-cache",
         image,
-        "sh", "-c", "mkdir -p /work/.eval && node /action/src/review.mjs",
+        "sh", "-c", "mkdir -p /io && node /action/src/review.mjs",
       ],
       { stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" },
     );
@@ -305,7 +311,7 @@ for (const combo of combos) {
       run,
       work: target,
       ...(failure ? { error: failure.slice(0, 400) } : {}),
-      ...metrics(join(target, ".eval", "events.jsonl"), join(target, ".eval", "findings.jsonl"), Math.round((Date.now() - started) / 1000)),
+      ...metrics(join(io, "events.jsonl"), join(io, "findings.jsonl"), Math.round((Date.now() - started) / 1000)),
     };
     rows.push(row);
     writeFileSync(out, rows.map((r) => JSON.stringify(r)).join("\n") + "\n");

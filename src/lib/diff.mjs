@@ -91,9 +91,9 @@ export function resolveQuote(files, path, quote) {
   };
 
   // A model quoting from `git diff` output carries the diff's own prefix (`+  const x = …`), which never matches the
-  // file. The quote as given is tried first; one prefix and the single space after it are the only tolerance beyond
-  // whitespace.
-  return match(wanted) || (/^[+-] /.test(wanted) ? match(wanted.slice(2)) : null);
+  // file. The quote as given is tried first — so a line that really begins with `- ` still matches itself — and one
+  // prefix with its optional space is the only tolerance beyond whitespace.
+  return match(wanted) || (/^[+-]/.test(wanted) ? match(wanted.replace(/^[+-] ?/, "")) : null);
 }
 
 // An explicit line number is weaker evidence than a quote, so it is only trusted when it names exactly one line. A

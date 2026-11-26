@@ -311,6 +311,60 @@ test("a quote carrying the diff's own prefix still resolves", () => {
   assert.equal(minus.line, 3);
 });
 
+// A prefixed quote copied straight from the diff has no space after the prefix (`+const b = 2;`), so the strip has to
+// make the space optional. The quote as given is still tried first, so a line that really begins with `- ` matches
+// itself rather than the stripped remainder.
+test("a prefixed quote without the space still resolves, and a real `- ` line matches itself", () => {
+  const stripped = resolveQuote(
+    files,
+    "src/services/scores.ts",
+    "+const { data } = await supabase.from('Auditions').select('*, Events(*)').eq('judge_id', judgeId)",
+  );
+  assert.equal(stripped.line, 25);
+  const indented = resolveQuote(
+    files,
+    "src/services/scores.ts",
+    "+  const { data } = await supabase.from('Auditions').select('*, Events(*)').eq('judge_id', judgeId)",
+  );
+  assert.equal(indented.line, 25);
+  const bulletFiles = parseDiff(`diff --git a/docs/notes.md b/docs/notes.md
+--- a/docs/notes.md
++++ b/docs/notes.md
+@@ -1,2 +1,3 @@
+# Notes
++- maybe remove this
+`);
+  const asGiven = resolveQuote(bulletFiles, "docs/notes.md", "- maybe remove this");
+  assert.equal(asGiven.line, 2);
+  const prefixed = resolveQuote(bulletFiles, "docs/notes.md", "+- maybe remove this");
+  assert.equal(prefixed.line, 2);
+});
+
+// Two functions each ending in `return null;` are two findings, not one: within this review the dedupe key is the
+// marker plus the resolved line, while the cross-run marker stays text-only so a shifted line still matches next push.
+test("two same-severity findings with identical text on different lines both post", () => {
+  const diff = `diff --git a/f.js b/f.js
+--- a/f.js
++++ b/f.js
+@@ -1,2 +1,4 @@
+ context
++return null;
++return null;
+`;
+  const review = buildReview({
+    findings: [
+      { path: "f.js", line: 2, severity: "high", body: "first guard" },
+      { path: "f.js", line: 3, severity: "high", body: "second guard" },
+    ],
+    diff,
+  });
+  assert.deepEqual(
+    review.posted.map((p) => p.line),
+    [2, 3],
+  );
+  assert.ok(!review.dropped.some((d) => d.reason === "duplicate within this review"));
+});
+
 test("an explicit line anchors when it names exactly one line", () => {
   const added = resolveLine(files, "src/services/scores.ts", 25);
   assert.equal(added.side, "added");

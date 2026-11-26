@@ -36,8 +36,9 @@ export function loadFindings(file) {
 // line. The body is deliberately not in the key: the same defect in different words is the same defect. Severity is,
 // because a re-rating across the floor is a finding that just became visible and should post. The line number is
 // deliberately not in the key either: it shifts on the next push, and a marker that moved with it would post the same
-// defect again — the text of the line is the stable half of the identity. The cost is that two same-severity findings
-// on identical lines of one file share a marker and dedupe; a different severity still posts.
+// defect again — the text of the line is the stable half of the identity. The cross-run marker stays text-only; two
+// same-severity findings on identical text at different lines (e.g. `return null;` in two functions) are different
+// findings, so the within-run dedupe key adds the resolved line on top of the marker.
 const marker = (f, hit) =>
   createHash("sha256")
     .update(
@@ -134,11 +135,12 @@ export function buildReview({ findings, diff, floor = "low", ignore = [], confid
     }
 
     const id = marker(f, hit);
-    if (seen.has(id)) {
+    const runId = `${id}:${hit.line}`;
+    if (seen.has(runId)) {
       dropped.push({ reason: "duplicate within this review", path: f.path, quote: f.quote, severity: f.severity, body: f.body });
       continue;
     }
-    seen.add(id);
+    seen.add(runId);
 
     posted.push({
       path: normalise(f.path),

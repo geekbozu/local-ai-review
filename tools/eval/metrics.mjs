@@ -101,6 +101,13 @@ export function metrics(eventsPath, findingsPath, seconds, expectations = []) {
     ...(expectations.length
       ? {
           extras: scored.filter((f) => !matched.has(f)).map((f) => ({ severity: f.severity, path: f.path, quote: f.quote, body: f.body })),
+          // Findings on code no expectation covers: the fixture's clean files. `extras` mixes two failures — fiction
+          // on a defect file and nits on a clean file — and only the second is the noise a maintainer reads, so a
+          // fixture with clean lines reports it on its own. A finding whose path belongs to an expected defect is not
+          // here even when it matches no token: that is an extra, not noise on clean code.
+          falsePositives: scored
+            .filter((f) => !expectations.some((w) => String(f.path || "").includes(w.path)))
+            .map((f) => ({ severity: f.severity, path: f.path, quote: f.quote, body: f.body })),
           // Findings beyond the number of defects they cover: restatement is a different failure from fiction, and the
           // extras list cannot see it. Measured: one run kept 8 findings for 5 defects with zero extras.
           restated: duplicates,

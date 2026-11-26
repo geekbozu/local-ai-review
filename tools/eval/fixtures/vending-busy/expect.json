@@ -1,0 +1,15 @@
+[
+  {
+    "id": "empty-batch-id",
+    "path": "src/payouts.ts",
+    "severity": "high",
+    "codeDefect": true,
+    "any": [
+      "first.id",
+      "payable[0]",
+      "empty batch",
+      "no payouts"
+    ],
+    "why": "settleDay settles whatever pickPayouts lets through, so a day where every payout is below the floor or for zero cents reaches settleBatch as an empty batch, and settleBatch reads payable[0].id with no guard - it throws on undefined instead of settling nothing"
+  }
+]

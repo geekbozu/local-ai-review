@@ -37,6 +37,7 @@ That is the actual defect issue #11 names.
 ```js
 // A loader answers two questions about one deployment's hardware.
 ensure(model, { signal }) -> { baseUrl, port?, samplerDefaults? }
+verify(model) -> boolean   // residency only: is the model already loaded? No launch, no side effects
 describe() -> string   // one line for the log: what it talked to, what it read
 ```
 
@@ -91,8 +92,8 @@ each wrapper: whether the current inline code allows it, and what the interface 
 
 | Composition | Today | What the interface must expose |
 |---|---|---|
-| **Retry** (launch poll is asynchronous; a device mid-download is not ready yet) | Impossible — the "loader" is inline in `run()`, runs once, and its failure mode is a post-run regex | `ensure` as a pure function with an `{signal}` argument is enough: a wrapper calls it again |
-| **Pre-flight check** (fail in 5 s with "model not loaded" instead of after a 10-minute run) | Impossible — no code runs between `review.mjs:80` and the spawn that knows anything about the device | `ensure` itself; the wrapper is just `ensure` with a short timeout, called before the spawn |
+| **Retry** (launch poll is asynchronous; a device mid-download is not ready yet) | Impossible — the "loader" is inline in `run()`, runs once, and its failure mode is a post-run regex | `ensure` as a pure function with an `{signal}` argument, **plus a retryable error**: `ensure` rejects with a typed error — `retryable: true` for "not loaded", a refused connection, a timeout mid-launch; `retryable: false` for a 401 bad key or a 400 malformed model id, which retrying only turns into a 45-minute job. This is a **different** distinction from `environmental()` (`review.mjs:391-399`), which classifies skip-vs-fail for the workflow, not retry-vs-don't for a wrapper. They overlap (most environmental failures are also retryable) but are not the same list — a 401 is neither — and a wrapper must not read one off the other |
+| **Pre-flight check** (fail in 5 s with "model not loaded" instead of after a 10-minute run) | Impossible — no code runs between `review.mjs:80` and the spawn that knows anything about the device | A **`verify()`** residency check (above), called before the spawn: is the model already loaded? — no launch, no side effects, cheap to bound at five seconds. It cannot be `ensure` with a short timeout: cold, `ensure` launches and polls for one to four minutes, so a 5-second bound fails exactly on the cold device pre-flight exists to make pleasant. Bounding `ensure` belongs to the caller's load budget (the timeout row), not to the seam |
 | **A log line** (`[ai-review] device tiiny: Qwen/… resident on :9097, n_ctx 131072 read from /props`) | Impossible — there is no single place where device knowledge exists to log | `describe()`, called by `run()` after `ensure`, so the log answers "what did it talk to" without a re-run |
 | **A fake for tests** | Impossible — the endpoint is env vars and the path is inline; the existing seams (`dry`, `clientArgv`) stop before any device code | `run(options)` gaining a `loader` option, like `sandbox` and `clientArgv` today: a seam is a function argument, never an env var |
 | **A timeout** (a hung management API must not hang the job) | Impossible today; the client's `providerTimeoutMs` only bounds the model call, not startup | The `{signal}` argument — a wrapper's `AbortSignal.timeout()` cancels `ensure`, and `run()` treats it as environmental, like a refused connection |

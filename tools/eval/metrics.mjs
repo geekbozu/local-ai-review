@@ -11,9 +11,11 @@ export function metrics(eventsPath, findingsPath, seconds, expectations = []) {
   const calls = [];
   let turns = 0;
   let answered = false;
-  // A message's usage record repeats across its `message_update` deltas and once more at `message_end`; count it once
-  // per distinct serialisation. The sum across turns is the metered total — the largest turn alone undercounts by
-  // roughly the turn count, which once made a device look four times slower than it is.
+  // Usage reaches the stream in two shapes: top-level `usage` on `message_update` deltas (not read here — the per-turn
+  // total is complete at `message_end`), and `message.usage` on `message_end`, which the following `turn_end` repeats
+  // verbatim. Read only the `message_end`/`turn_end` placement and count each distinct record once, so that duplicate
+  // collapses. The sum across turns is the metered total — the largest turn alone undercounts by roughly the turn
+  // count, which once made a device look four times slower than it is.
   const usageSeen = new Set();
   let outputTokens = 0;
   for (const line of lines) {
@@ -30,7 +32,7 @@ export function metrics(eventsPath, findingsPath, seconds, expectations = []) {
       const a = event.args || {};
       calls.push(`${event.toolName} ${String(a.command || a.path || a.id || "")}`.slice(0, 80));
     }
-    const usage = event.message?.usage;
+    const usage = event.type === "message_end" || event.type === "turn_end" ? event.message?.usage : undefined;
     if (usage) {
       const key = JSON.stringify(usage);
       if (!usageSeen.has(key)) {
@@ -81,6 +83,9 @@ export function metrics(eventsPath, findingsPath, seconds, expectations = []) {
     turns,
     answered,
     outputTokens,
+    // A run with turns but no usage record at all is a fixture/stream problem, not a zero: this count keeps "the model
+    // emitted 0 tokens" distinguishable from "no usage was ever seen".
+    usageRecords: usageSeen.size,
     // Aggregate throughput, not a decode rate: prefill and tool time are inside `seconds`, so rows are comparable.
     tokPerSec: seconds ? Number((outputTokens / seconds).toFixed(1)) : 0,
     // What the model actually filed, as opposed to what it claimed in prose.

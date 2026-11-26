@@ -313,3 +313,35 @@ test("the model entry is built from config, and a non-thinking model sends no sh
   assert.equal(thinking.compaction.reserveTokens, Math.round(131072 * 0.19), "compaction follows the model's window");
   assert.ok(!("max_tokens" in thinking.model.samplingParams), "no per-request cap is sent");
 });
+
+// chatTemplateKwargs was accepted by the validator and never written into the model entry, so a repository could set it
+// and get nothing — measured on gemma, whose template needs `enable_thinking` to emit its thinking token at all.
+test("chatTemplateKwargs reaches the model entry, and an empty object adds nothing", async () => {
+  const { writeAgentDir } = await import("../src/steps/agent-dir.mjs");
+  const { readFileSync, mkdtempSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+
+  const settings = (chatTemplateKwargs) => ({
+    reasoning: true, thinkingFormat: "chat-template", chatTemplateKwargs,
+    contextWindow: 1024, maxTokens: 16, temperature: 1, topP: 1, topK: 1, minP: 0,
+    presencePenalty: 0, repeatPenalty: 1, frequencyPenalty: 0, dryMultiplier: 0, dryAllowedLength: 0,
+  });
+  const entryFor = (chatTemplateKwargs) => {
+    const dir = mkdtempSync(join(tmpdir(), "agentdir-"));
+    process.env.PI_CODING_AGENT_DIR = dir;
+    try {
+      writeAgentDir({ model: "m", baseUrl: "http://x/v1", apiKeyEnv: "K", settings: settings(chatTemplateKwargs) });
+      return JSON.parse(readFileSync(join(dir, "models.json"), "utf8")).providers.local.models[0];
+    } finally {
+      delete process.env.PI_CODING_AGENT_DIR;
+    }
+  };
+
+  assert.deepEqual(
+    entryFor({ enable_thinking: true }).compat.chatTemplateKwargs,
+    { enable_thinking: true },
+    "the kwargs must reach the model entry",
+  );
+  assert.equal(entryFor({}).compat.chatTemplateKwargs, undefined, "an empty object is omitted, not sent as {}");
+});

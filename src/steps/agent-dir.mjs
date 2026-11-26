@@ -32,6 +32,12 @@ export function writeAgentDir({ model, baseUrl, apiKeyEnv, settings }) {
   // dropping the prefix cache to single-digit percentages. Measured in this repo's own tooling.
   const compat = {
     ...(settings.reasoning && settings.thinkingFormat !== "none" ? { thinkingFormat: settings.thinkingFormat } : {}),
+    // Validated in config.mjs since the beginning and never written here, so a repository that set it got nothing: the
+    // field was accepted, documented and dropped. Measured on gemma, whose template injects its thinking token only when
+    // `enable_thinking` is true — through the harness it never was, and every run degenerated.
+    ...(Object.keys(settings.chatTemplateKwargs || {}).length
+      ? { chatTemplateKwargs: settings.chatTemplateKwargs }
+      : {}),
     supportsMidConvoSystemMessages: true,
   };
   const levels = { minimal: "minimal", low: "low", medium: "medium", high: "high" };

@@ -50,7 +50,9 @@ inputs:
     required: false
     default: ""
   post:
-    description: Set to false to review without posting (useful for a first run).
+    description: >-
+      Set to false to review without posting (useful for a first run). A run without a pull request to post to - push,
+      schedule, or a workflow_dispatch that did not pass `pr-number` - never posts, whatever this says.
     required: false
     default: "true"
 
@@ -168,8 +170,11 @@ runs:
         TRANSCRIPT_FILE: ${{ runner.temp }}/ai-review-transcript.md
       run: node "${{ github.action_path }}/src/render-transcript.mjs"
 
+    # post.mjs throws when PR_NUMBER renders empty, which happens on any trigger without a pull_request in the event -
+    # not just workflow_dispatch - and only after the whole review has run. So the gate is not the event name but whether
+    # a PR to post to exists: the event's, or an explicit pr-number, which makes the input work again on a manual run.
     - name: Post
-      if: steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true' && inputs.post == 'true' && steps.review.outputs.skip != 'true'
+      if: steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true' && inputs.post == 'true' && steps.review.outputs.skip != 'true' && (inputs.pr-number != '' || github.event.pull_request.number != '')
       shell: bash
       env:
         GITHUB_TOKEN: ${{ github.token }}
@@ -183,6 +188,14 @@ runs:
         AI_REVIEW_NOTES: ${{ runner.temp }}/ai-review-notes.txt
         FROZEN_DIR: ${{ runner.temp }}/ai-review-frozen
       run: node "${{ github.action_path }}/src/post.mjs"
+
+    # Any run that asked to post but has no pull request to post to - push, schedule, or a dispatch without pr-number -
+    # must not end looking like a review that found nothing. The notice claims only what is certain - nothing was
+    # posted - and fires only when the review itself ran, so a skip keeps its own skip-reason instead.
+    - name: Say it did not post
+      if: inputs.post == 'true' && inputs.pr-number == '' && github.event.pull_request.number == '' && steps.review.outputs.skip != 'true' && steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true'
+      shell: bash
+      run: 'echo "::notice::no pull request to comment on for this event, so nothing was posted. Pass pr-number to post."'
 
     # After Post, unlike a plain log upload, because posting is what writes the dropped findings into the notes.
     # `always()` keeps the cancelled run, which is the one worth reading. The event stream is deliberately not in this

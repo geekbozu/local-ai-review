@@ -15,7 +15,6 @@ export function parseDiff(text) {
   const files = new Map();
   let file = null;
   let newLine = 0;
-  let oldLine = 0;
   let hunkSeen = false;
 
   for (const line of text.split("\n")) {
@@ -36,7 +35,6 @@ export function parseDiff(text) {
 
     const hunk = HUNK.exec(raw);
     if (hunk) {
-      oldLine = Number(hunk[1]);
       newLine = Number(hunk[2]);
       hunkSeen = true;
       continue;
@@ -48,13 +46,12 @@ export function parseDiff(text) {
       continue;
     }
     if (raw.startsWith("-")) {
-      // Removed lines keep their old-file numbers: diffStats reports them as the size of the change.
-      file.removed.push({ line: oldLine++, text: normalise(raw.slice(1)) });
+      // Removed lines are counts for diffStats only: a RIGHT-side comment cannot attach to one, so no old-file
+      // number is kept — nothing reads it.
+      file.removed.push(normalise(raw.slice(1)));
       continue;
     }
-    // A context line occupies a line in both files, so both counters advance — leaving oldLine put shifted every
-    // later removed line's old-file number.
-    oldLine += 1;
+    // A context line occupies a line in both files.
     file.context.push({ line: newLine++, text: normalise(raw.startsWith(" ") ? raw.slice(1) : raw) });
   }
 

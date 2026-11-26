@@ -33,6 +33,9 @@ const files = parseDiff(DIFF);
 test("parses added and context lines with new-file numbers", () => {
   const scores = files.get("src/services/scores.ts");
   assert.ok(scores, "file present");
+  assert.deepEqual(scores.removed, [
+    "  const { data } = await supabase.from('Scores').select('*').eq('audition_id', auditionId).maybeSingle()",
+  ]);
   assert.equal(scores.added[0].line, 20);
   assert.match(scores.added[0].text, /\.single\(\)$/);
   assert.deepEqual(
@@ -340,8 +343,6 @@ test("a prefixed quote without the space still resolves, and a real `- ` line ma
   assert.equal(prefixed.line, 2);
 });
 
-// Two functions each ending in `return null;` are two findings, not one: within this review the dedupe key is the
-// marker plus the resolved line, while the cross-run marker stays text-only so a shifted line still matches next push.
 // Nothing tested diffStats before, which is how a NaN total.removed reached every prompt unnoticed.
 test("diffStats counts added and removed lines per file and in total", () => {
   const stats = diffStats(files);
@@ -352,45 +353,22 @@ test("diffStats counts added and removed lines per file and in total", () => {
   assert.deepEqual(stats.total, { added: 10, removed: 1 });
 });
 
-// A context line occupies a line in both files. When oldLine did not advance, every removed line after the first
-// context line carried an old-file number one too low per context line.
-test("context lines advance the old-file counter, so a removed line keeps its real old number", () => {
-  const shifted = parseDiff(`diff --git a/a.txt b/a.txt
---- a/a.txt
-+++ b/a.txt
-@@ -1,5 +1,5 @@
+// The marker must stay byte-identical to the one `main` has been posting: changing the identity orphans every
+// comment on an already-reviewed PR and re-posts each finding once. Pinned so the formula cannot drift again.
+test("the marker matches main's identity for a known finding", () => {
+  const diff = `diff --git a/src/scores.ts b/src/scores.ts
+--- a/src/scores.ts
++++ b/src/scores.ts
+@@ -9,3 +9,4 @@
  one
- two
--REMOVED-old-3
-+ADDED
- three`);
-  assert.deepEqual(
-    shifted.get("a.txt").removed.map((r) => r.line),
-    [3],
-  );
-});
-
-// The clash check only refuses when the two sides disagree: a line that reads the same on both sides of the hunk is
-// one line as far as the reader is concerned, and still anchors.
-// Line numbers shift on the next push, so a marker keyed on the resolved line would post the same defect again. The
-// text of the line is the stable half of the identity.
-test("a marker survives the line shifting between pushes", () => {
-  const before = `diff --git a/f.txt b/f.txt
---- a/f.txt
-+++ b/f.txt
-@@ -1,2 +1,3 @@
- one
-+BAD
++  const { data } = await supabase.from("Scores")
  three`;
-  const after = `diff --git a/f.txt b/f.txt
---- a/f.txt
-+++ b/f.txt
-@@ -1,2 +1,4 @@
-+intro
- one
-+BAD
- three`;
-  const first = buildReview({ findings: [{ path: "f.txt", quote: "BAD", severity: "high", body: "defect" }], diff: before }).posted[0];
-  const next = buildReview({ findings: [{ path: "f.txt", quote: "BAD", severity: "high", body: "defect" }], diff: after }).posted[0];
-  assert.equal(next.marker, first.marker);
+  const { posted, dropped } = buildReview({
+    findings: [{ path: "src/scores.ts", quote: '  const { data } = await supabase.from("Scores")', severity: "high", body: "defect" }],
+    diff,
+  });
+  assert.equal(dropped.length, 0);
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].line, 10);
+  assert.equal(posted[0].marker, "4efebbb29aafd99f");
 });

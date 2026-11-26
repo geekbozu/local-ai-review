@@ -17,6 +17,7 @@ Numbers are only comparable within one fixture, prompt and preset.
 
 - Each row is a whole `.ai-review.json`; the harness writes it into the fixture and runs the action in the container, so the sandboxed path is what is measured.
 - `found` = defects reported, of six. `kept` = findings the model left in its list. `wall` = seconds.
+- Rows recorded before the harness stopped writing into the work tree were measured on a tree that also held the previous run's transcript and findings. A model that read it could see a review of the same diff — one said "already reviewed by someone else" and stopped — so a pre-fix row that looks unusually good is a row to re-measure, not a result.
 - `contextBudget` is **64k for every row**. A row measured at a different budget is not comparable: one model
   measured at 16k scored a defect higher than the same model at 64k with nothing else changed, which is variance,
   not a setting worth tuning per model.

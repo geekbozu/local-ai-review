@@ -109,7 +109,7 @@ each setting bought are in [`docs/model-testing.md`](../model-testing.md).
 | `Qwen/Qwen3-Coder-Next` | 80B total, 3B active; four of five on the older fixture |
 | `zai-org/GLM-4.7-Flash` | flat at three of six wherever measured; slow |
 | `ornith-ai/Ornith-1.5-35B-A3B-Turbo` | not a reviewer: reads everything, files one finding, 500-900 s |
-| `google/gemma-4-26B-A4B-it` | **unusable on this NPU build.** Its template needs `chat_template_kwargs: {"enable_thinking": true}` or the thinking token is never injected — a direct request with it returns tools in 12.5 s. Through the agent it then loops *inside* the thinking channel: one turn produced 42,618 characters of which 3,268 lines were `- The end is`, and a second stalled until the client's idle timeout. The server also runs `chat_format: "Content-only"` / `reasoning_format: "none"`, so channels are not parsed either way |
+| `google/gemma-4-26B-A4B-it` | **unusable on this NPU build.** Its template needs `chat_template_kwargs: {"enable_thinking": true}` or the thinking token is never injected — a direct request with it returns tools in 12.5 s. Through the agent it then loops *inside* the thinking channel: one turn produced 42,618 characters of which 3,268 lines were `- The end is`, and a second stalled until the client's idle timeout. The server also runs `chat_format: "Content-only"` / `reasoning_format: "none"`, so channels are not parsed either way. Capping its thinking with `thinking_budget_tokens` does not help: on the wire (256/512/1024) it returns clean tool calls, through the agent it emits one markup token forever — `<thought` × 5,460 lines, then `<data:s`, then `<br` — at 512 and at 2048 alike |
 
 ### General models: none measured yet
 

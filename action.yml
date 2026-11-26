@@ -51,8 +51,8 @@ inputs:
     default: ""
   post:
     description: >-
-      Set to false to review without posting (useful for a first run). A run without a pull request to post to - a
-      workflow_dispatch that did not pass `pr-number` - never posts, whatever this says.
+      Set to false to review without posting (useful for a first run). A run without a pull request to post to - push,
+      schedule, or a workflow_dispatch that did not pass `pr-number` - never posts, whatever this says.
     required: false
     default: "true"
 
@@ -189,12 +189,13 @@ runs:
         FROZEN_DIR: ${{ runner.temp }}/ai-review-frozen
       run: node "${{ github.action_path }}/src/post.mjs"
 
-    # A dispatch that asked to post but gave no pr-number must not end looking like a review that found nothing. The
-    # notice claims only what is certain - nothing was posted - because whether the review itself ran is not visible here.
+    # Any run that asked to post but has no pull request to post to - push, schedule, or a dispatch without pr-number -
+    # must not end looking like a review that found nothing. The notice claims only what is certain - nothing was
+    # posted - and fires only when the review itself ran, so a skip keeps its own skip-reason instead.
     - name: Say it did not post
-      if: github.event_name == 'workflow_dispatch' && inputs.post == 'true' && inputs.pr-number == '' && steps.review.outputs.skip != 'true' && steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true'
+      if: inputs.post == 'true' && inputs.pr-number == '' && github.event.pull_request.number == '' && steps.review.outputs.skip != 'true' && steps.configured.outputs.ready == 'true' && steps.sandbox.outputs.ready == 'true'
       shell: bash
-      run: 'echo "::notice::workflow_dispatch run: a dispatch has no pull request to comment on by itself, so nothing was posted. Pass pr-number to post."'
+      run: 'echo "::notice::no pull request to comment on for this event, so nothing was posted. Pass pr-number to post."'
 
     # After Post, unlike a plain log upload, because posting is what writes the dropped findings into the notes.
     # `always()` keeps the cancelled run, which is the one worth reading. The event stream is deliberately not in this

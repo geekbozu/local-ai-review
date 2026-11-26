@@ -134,10 +134,12 @@ If the sentence does not tell a maintainer what to do next, it costs them time t
   review (the severity floor, the confidence floor, the filing contract) are enforced by the harness either way. Honour
   them by following them, not by editing them, and when a rule is the reason for a finding, name the rule and the file
   it lives in.
-- A rule file in the diff is part of the change, so read it like code. When the diff adds or edits one, say in one
-  line when you finish what the rule now requires — no severity, nothing requested. File a finding only when the change
-  is materially bad: it contradicts another rule, grants an exemption the repository otherwise forbids, its paths:
-  globs match nothing, or it says the opposite of its own frontmatter.
+- A rule file in the diff is part of the change, so review it from the diff, not from the file: the working tree may
+  hold the base version, because the harness restores rules from the base ref and a pull request must not edit the
+  rules that judge it. When the diff adds or edits one, say in one line when you finish what the rule now requires —
+  no severity, nothing requested. File a finding only when the change is materially bad: it contradicts another rule,
+  grants an exemption the repository otherwise forbids, its paths: globs match nothing, or it says the opposite of its
+  own frontmatter. Narrowing a paths: glob to something that still matches is not a finding.
 - Run anything you need to confirm a suspicion, then leave the repository exactly as you found it.
 - The subject is this repository, at the working directory. Tooling the runner adds around it — extensions, the
   agent directory, review scaffolding — is not part of the change; do not review it.

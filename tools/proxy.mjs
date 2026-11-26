@@ -74,10 +74,23 @@ http
     delete out["content-encoding"];
     delete out["content-length"];
     res.writeHead(up.status, out);
+    // The response matters as much as the request when the question is "who mangled this": pi sees exactly these bytes.
+    // Bounded so a run cannot fill the disk, and appended so several turns accumulate in one file.
+    const reply = [];
+    let replyBytes = 0;
     if (up.body) {
-      for await (const chunk of up.body) res.write(chunk);
+      for await (const chunk of up.body) {
+        res.write(chunk);
+        if (replyBytes < 262144) {
+          reply.push(chunk);
+          replyBytes += chunk.length;
+        }
+      }
     }
     res.end();
+    appendFileSync(`${LOG}.reply`, `
+--- ${req.url} ${up.status} ${replyBytes} bytes ---
+${Buffer.concat(reply).toString("utf8")}`);
   })
   .listen(PORT, process.env.HOST || "127.0.0.1", () =>
     console.error(`proxy on http://${process.env.HOST || "127.0.0.1"}:${PORT} -> ${UPSTREAM}`),

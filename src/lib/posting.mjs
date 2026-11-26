@@ -5,7 +5,7 @@
 
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { parseDiff, resolveQuote, resolveLine, normalise } from "./diff.mjs";
+import { parseDiff, resolveQuote, normalise } from "./diff.mjs";
 import { matchesAny } from "./config.mjs";
 
 export function loadFindings(file) {
@@ -30,15 +30,12 @@ export function loadFindings(file) {
 
 // The identity of a finding for de-duplication: its path, its severity, and the text of the line it lands on without
 // indentation. The resolved line's text goes in, not the raw quote: a quote that resolves always agrees with the line
-// it resolved to, so a finding anchored by quote on one run and by explicit line number on the next lands on the same
-// marker instead of posting twice. Identity used to be the raw quote, which is stricter than the anchor matcher — a
+// it resolved to. Identity used to be the raw quote, which is stricter than the anchor matcher — a
 // run that quoted `"npm:pi-background"` and a run that quoted it with its four leading spaces were two comments on one
 // line. The body is deliberately not in the key: the same defect in different words is the same defect. Severity is,
 // because a re-rating across the floor is a finding that just became visible and should post. The line number is
 // deliberately not in the key either: it shifts on the next push, and a marker that moved with it would post the same
-// defect again — the text of the line is the stable half of the identity. The cross-run marker stays text-only; two
-// same-severity findings on identical text at different lines (e.g. `return null;` in two functions) are different
-// findings, so the within-run dedupe key adds the resolved line on top of the marker.
+// defect again — the text of the line is the stable half of the identity.
 const marker = (f, hit) =>
   createHash("sha256")
     .update(
@@ -96,7 +93,7 @@ export function buildReview({ findings, diff, floor = "low", ignore = [], confid
       dropped.push({ reason: "not JSON", raw: String(f._malformed).slice(0, 120) });
       continue;
     }
-    if (!(f.path && f.body && f.severity && (f.quote || f.line != null))) {
+    if (!(f.path && f.body && f.severity && f.quote)) {
       dropped.push({ reason: "missing field", path: f.path, quote: f.quote });
       continue;
     }
@@ -120,9 +117,8 @@ export function buildReview({ findings, diff, floor = "low", ignore = [], confid
       continue;
     }
 
-    // A resolvable quote always wins; an explicit line number is only the fallback for a finding the model could
-    // point at but not reproduce, and an ambiguous line refuses rather than guessing.
-    const hit = (f.quote ? resolveQuote(files, f.path, f.quote) : null) ?? (f.line != null ? resolveLine(files, f.path, f.line) : null);
+    // A finding anchors by the text it quotes; an ambiguous or absent quote refuses rather than guessing.
+    const hit = resolveQuote(files, f.path, f.quote);
     if (!hit) {
       dropped.push({
         reason: "cannot anchor to a line in the diff",
@@ -135,12 +131,11 @@ export function buildReview({ findings, diff, floor = "low", ignore = [], confid
     }
 
     const id = marker(f, hit);
-    const runId = `${id}:${hit.line}`;
-    if (seen.has(runId)) {
+    if (seen.has(id)) {
       dropped.push({ reason: "duplicate within this review", path: f.path, quote: f.quote, severity: f.severity, body: f.body });
       continue;
     }
-    seen.add(runId);
+    seen.add(id);
 
     posted.push({
       path: normalise(f.path),

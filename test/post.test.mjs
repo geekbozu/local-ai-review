@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseDiff, resolveQuote, resolveLine, touchedPaths, diffStats } from "../src/lib/diff.mjs";
+import { parseDiff, resolveQuote, touchedPaths, diffStats } from "../src/lib/diff.mjs";
 import { buildReview, existingMarkers, summarise } from "../src/lib/posting.mjs";
 
 const DIFF = `diff --git a/src/services/scores.ts b/src/services/scores.ts
@@ -342,38 +342,6 @@ test("a prefixed quote without the space still resolves, and a real `- ` line ma
 
 // Two functions each ending in `return null;` are two findings, not one: within this review the dedupe key is the
 // marker plus the resolved line, while the cross-run marker stays text-only so a shifted line still matches next push.
-test("two same-severity findings with identical text on different lines both post", () => {
-  const diff = `diff --git a/f.js b/f.js
---- a/f.js
-+++ b/f.js
-@@ -1,2 +1,4 @@
- context
-+return null;
-+return null;
-`;
-  const review = buildReview({
-    findings: [
-      { path: "f.js", line: 2, severity: "high", body: "first guard" },
-      { path: "f.js", line: 3, severity: "high", body: "second guard" },
-    ],
-    diff,
-  });
-  assert.deepEqual(
-    review.posted.map((p) => p.line),
-    [2, 3],
-  );
-  assert.ok(!review.dropped.some((d) => d.reason === "duplicate within this review"));
-});
-
-test("an explicit line anchors when it names exactly one line", () => {
-  const added = resolveLine(files, "src/services/scores.ts", 25);
-  assert.equal(added.side, "added");
-  const context = resolveLine(files, "src/services/scores.ts", 21);
-  assert.equal(context.side, "context");
-  assert.equal(resolveLine(files, "src/services/scores.ts", 999), null);
-  assert.equal(resolveLine(files, "src/services/scores.ts", "nope"), null);
-});
-
 // Nothing tested diffStats before, which is how a NaN total.removed reached every prompt unnoticed.
 test("diffStats counts added and removed lines per file and in total", () => {
   const stats = diffStats(files);
@@ -400,82 +368,13 @@ test("context lines advance the old-file counter, so a removed line keeps its re
     shifted.get("a.txt").removed.map((r) => r.line),
     [3],
   );
-  // The clash check reads the same numbers: old 1 is context "one", not a phantom removed line.
-  assert.equal(resolveLine(shifted, "a.txt", 1)?.side, "context");
 });
 
 // The clash check only refuses when the two sides disagree: a line that reads the same on both sides of the hunk is
 // one line as far as the reader is concerned, and still anchors.
-test("a line with identical text on both sides of the hunk resolves", () => {
-  const moved = parseDiff(`diff --git a/m.txt b/m.txt
---- a/m.txt
-+++ b/m.txt
-@@ -1,1 +1,1 @@
--same
-+same`);
-  assert.equal(resolveLine(moved, "m.txt", 1)?.side, "added");
-});
-
-test("a line that is a different line on each side of the hunk refuses rather than guesses", () => {
-  // New-file line 20 is the added .single() line; old-file line 20 is the removed .maybeSingle() line. One number,
-  // two lines: the same failure as an ambiguous quote.
-  assert.equal(resolveLine(files, "src/services/scores.ts", 20), null);
-});
-
-test("a finding with only a line posts when the line is unambiguous and is dropped when it is not", () => {
-  const { posted, dropped } = buildReview({
-    findings: [
-      { path: "src/services/scores.ts", line: 25, severity: "high", body: "Event-scoped read without an event_id filter." },
-      { path: "src/services/scores.ts", line: 20, severity: "high", body: "ambiguous on both sides of the hunk" },
-    ],
-    diff: DIFF,
-  });
-  assert.deepEqual(
-    posted.map((p) => p.line),
-    [25],
-  );
-  assert.equal(dropped.length, 1);
-});
-
-test("a resolvable quote wins over an explicit line, which is only the fallback", () => {
-  const quoted = buildReview({ findings: [{ ...findings[1], line: 99 }], diff: DIFF });
-  assert.deepEqual(
-    quoted.posted.map((p) => p.line),
-    [25],
-  );
-
-  const fallback = buildReview({
-    findings: [{ path: "src/services/scores.ts", quote: "  made up line", line: 25, severity: "high", body: "cannot quote, can point" }],
-    diff: DIFF,
-  });
-  assert.deepEqual(
-    fallback.posted.map((p) => p.line),
-    [25],
-  );
-  assert.equal(fallback.dropped.length, 0);
-});
-
-// The cross-run identity is path + resolved line + severity + the text of the line. Anchoring by quote on one run and
-// by line number on the next has to land on the same marker, or the same defect posts twice.
-test("a finding anchored by line and the same finding anchored by quote do not post twice", () => {
-  const quoted = buildReview({ findings: [findings[1]], diff: DIFF }).posted[0];
-  const lined = buildReview({
-    findings: [{ path: "src/services/scores.ts", line: 25, severity: "high", body: "the same defect, anchored by number" }],
-    diff: DIFF,
-  }).posted[0];
-  assert.equal(lined.marker, quoted.marker);
-
-  // A quote still carrying the diff prefix is the same finding again, on the same line.
-  const prefixed = buildReview({
-    findings: [{ ...findings[1], quote: `+ ${findings[1].quote}` }],
-    diff: DIFF,
-  }).posted[0];
-  assert.equal(prefixed.marker, quoted.marker);
-});
-
 // Line numbers shift on the next push, so a marker keyed on the resolved line would post the same defect again. The
 // text of the line is the stable half of the identity.
-test("a line-anchored marker survives the line shifting between pushes", () => {
+test("a marker survives the line shifting between pushes", () => {
   const before = `diff --git a/f.txt b/f.txt
 --- a/f.txt
 +++ b/f.txt
@@ -491,7 +390,7 @@ test("a line-anchored marker survives the line shifting between pushes", () => {
  one
 +BAD
  three`;
-  const first = buildReview({ findings: [{ path: "f.txt", line: 2, severity: "high", body: "defect" }], diff: before }).posted[0];
-  const next = buildReview({ findings: [{ path: "f.txt", line: 3, severity: "high", body: "defect" }], diff: after }).posted[0];
+  const first = buildReview({ findings: [{ path: "f.txt", quote: "BAD", severity: "high", body: "defect" }], diff: before }).posted[0];
+  const next = buildReview({ findings: [{ path: "f.txt", quote: "BAD", severity: "high", body: "defect" }], diff: after }).posted[0];
   assert.equal(next.marker, first.marker);
 });

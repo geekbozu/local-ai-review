@@ -48,13 +48,12 @@ export function parseDiff(text) {
       continue;
     }
     if (raw.startsWith("-")) {
-      // Removed lines keep their old-file numbers: an explicit line anchor has to know when a number names two
-      // different lines at once, one on each side of the hunk.
+      // Removed lines keep their old-file numbers: diffStats reports them as the size of the change.
       file.removed.push({ line: oldLine++, text: normalise(raw.slice(1)) });
       continue;
     }
     // A context line occupies a line in both files, so both counters advance — leaving oldLine put shifted every
-    // later removed line's old-file number, and resolveLine's clash check with it.
+    // later removed line's old-file number.
     oldLine += 1;
     file.context.push({ line: newLine++, text: normalise(raw.startsWith(" ") ? raw.slice(1) : raw) });
   }
@@ -94,23 +93,6 @@ export function resolveQuote(files, path, quote) {
   // file. The quote as given is tried first — so a line that really begins with `- ` still matches itself — and one
   // prefix with its optional space is the only tolerance beyond whitespace.
   return match(wanted) || (/^[+-]/.test(wanted) ? match(wanted.replace(/^[+-] ?/, "")) : null);
-}
-
-// An explicit line number is weaker evidence than a quote, so it is only trusted when it names exactly one line. A
-// number that is also a removed line on the minus side of the hunk — the model may have counted the old file — is two
-// different lines at once when their text differs, and that refuses rather than guesses.
-export function resolveLine(files, path, line) {
-  const file = files.get(normalise(path));
-  if (!file) return null;
-  const n = Number(line);
-  if (!Number.isInteger(n) || n < 1) return null;
-  const hits = [
-    ...file.added.filter((l) => l.line === n).map((l) => ({ ...l, side: "added" })),
-    ...file.context.filter((l) => l.line === n).map((l) => ({ ...l, side: "context" })),
-  ];
-  if (hits.length !== 1) return null;
-  const clash = file.removed.some((l) => l.line === n && normalise(l.text) !== hits[0].text);
-  return clash ? null : hits[0];
 }
 
 // Every file the diff touches. The coverage gate asks which of these the agent never opened, so a review that

@@ -54,8 +54,8 @@
       ".get(",
       "unit_cents",
       "typeerror",
+      "nonetype",
       "pricing",
-      "returns none",
       "is none"
     ],
     "why": "the three chained .get() calls default to None when the export has no pricing block, and sum() raises TypeError instead of reporting zero revenue"
@@ -69,7 +69,7 @@
       "create_task",
       "never awaited",
       "not awaited",
-      "await",
+      "never retrieved",
       "fire and forget"
     ],
     "why": "the task returned by create_task is dropped, so a fetch that fails raises nowhere, is never retrieved, and can be collected before it runs"

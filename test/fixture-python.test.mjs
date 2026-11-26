@@ -1,13 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync, writeFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { buildFixture, fixtureDir } from "../tools/eval/fixture.mjs";
 import { metrics } from "../tools/eval/metrics.mjs";
-
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 // The harness's own git init/commit path against a Python fixture: if this passes, `--fixture vending-python` builds
 // the same two-commit history every other fixture is scored from, and the scoring code needs no language branch.
@@ -54,8 +52,13 @@ test("the fixture is not all defect: two changed files carry no expectation", ()
   assert.deepEqual(changed.filter((path) => !covered.has(path)), ["README.md", "vending/machine.py"]);
 });
 
+// A clean checkout has no `out/`, and it is the live sweep directory besides: the test's files go to a temp dir
+// that is removed afterwards.
+const scratch = mkdtempSync(join(tmpdir(), "eval-python-"));
+test.after(() => rmSync(scratch, { recursive: true, force: true }));
+
 // One assistant turn, so `answered` reads true and nothing else distracts.
-const eventsPath = join(root, "out", "eval-python-events.jsonl");
+const eventsPath = join(scratch, "events.jsonl");
 writeFileSync(
   eventsPath,
   JSON.stringify({ type: "turn_start" }) + "\n" +
@@ -118,7 +121,7 @@ const findings = [
     severity: "low",
   },
 ];
-const findingsPath = join(root, "out", "eval-python-findings.jsonl");
+const findingsPath = join(scratch, "findings.jsonl");
 writeFileSync(findingsPath, findings.map((f) => JSON.stringify(f)).join("\n") + "\n");
 
 const row = metrics(eventsPath, findingsPath, 10, expect);

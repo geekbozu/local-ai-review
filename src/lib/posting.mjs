@@ -28,16 +28,18 @@ export function loadFindings(file) {
     });
 }
 
-// The identity of a finding for de-duplication: the line it lands on, its severity, and the first quoted line
-// without indentation. Identity used to be the raw quote, which is stricter than the anchor matcher — a run that
-// quoted `"npm:pi-background"` and a run that quoted it with its four leading spaces were two comments on one line.
-// The body is deliberately not in the key: the same defect in different words is the same defect. Severity is,
-// because a re-rating across the floor is a finding that just became visible and should post. Two distinct defects on
-// one line still post separately, since their quotes differ.
-const marker = (f, line) =>
+// The identity of a finding for de-duplication: its path, its severity, and the text of the line it lands on without
+// indentation. The resolved line's text goes in, not the raw quote: a quote that resolves always agrees with the line
+// it resolved to. Identity used to be the raw quote, which is stricter than the anchor matcher — a
+// run that quoted `"npm:pi-background"` and a run that quoted it with its four leading spaces were two comments on one
+// line. The body is deliberately not in the key: the same defect in different words is the same defect. Severity is,
+// because a re-rating across the floor is a finding that just became visible and should post. The line number is
+// deliberately not in the key either: it shifts on the next push, and a marker that moved with it would post the same
+// defect again — the text of the line is the stable half of the identity.
+const marker = (f, hit) =>
   createHash("sha256")
     .update(
-      `${normalise(f.path)}\u0000${line}\u0000${normalise(f.severity)}\u0000${normalise(String(f.quote).split("\n")[0]).trimStart()}`,
+      `${normalise(f.path)}\u0000${normalise(f.severity)}\u0000${normalise(hit.text).trimStart()}`,
     )
     .digest("hex")
     .slice(0, 16);
@@ -91,7 +93,7 @@ export function buildReview({ findings, diff, floor = "low", ignore = [], confid
       dropped.push({ reason: "not JSON", raw: String(f._malformed).slice(0, 120) });
       continue;
     }
-    if (!(f.path && f.quote && f.body && f.severity)) {
+    if (!(f.path && f.body && f.severity && f.quote)) {
       dropped.push({ reason: "missing field", path: f.path, quote: f.quote });
       continue;
     }
@@ -115,6 +117,7 @@ export function buildReview({ findings, diff, floor = "low", ignore = [], confid
       continue;
     }
 
+    // A finding anchors by the text it quotes; an ambiguous or absent quote refuses rather than guessing.
     const hit = resolveQuote(files, f.path, f.quote);
     if (!hit) {
       dropped.push({
@@ -127,7 +130,7 @@ export function buildReview({ findings, diff, floor = "low", ignore = [], confid
       continue;
     }
 
-    const id = marker(f, hit.line);
+    const id = marker(f, hit);
     if (seen.has(id)) {
       dropped.push({ reason: "duplicate within this review", path: f.path, quote: f.quote, severity: f.severity, body: f.body });
       continue;
@@ -150,7 +153,7 @@ export function buildReview({ findings, diff, floor = "low", ignore = [], confid
 // Re-runs are normal: a push triggers another review. The hidden marker is the only reliable way to tell "we
 // already said this" from "we are saying it again", so it is written into every body and read back here.
 // Only comments this token wrote count as "we already said that". The marker is a hash of path, line, severity and the
-// first quoted line — every input readable from the diff — so anyone who can comment on the pull request can compute one
+// line's text — every input readable from the diff — so anyone who can comment on the pull request can compute one
 // and suppress a real finding by posting it first. `only` is the login the token resolves to.
 export function existingMarkers(comments, { login = null } = {}) {
   const ids = new Set();

@@ -22,7 +22,7 @@ export function parseDiff(text) {
     const raw = stripCr(line);
     const header = FILE_HEADER.exec(raw);
     if (header) {
-      file = { path: normalise(header[2]), added: [], context: [], removed: 0 };
+      file = { path: normalise(header[2]), added: [], context: [], removed: [] };
       files.set(file.path, file);
       hunkSeen = false;
       continue;
@@ -48,10 +48,13 @@ export function parseDiff(text) {
       continue;
     }
     if (raw.startsWith("-")) {
-      oldLine++;
-      file.removed += 1;
+      // Removed lines keep their old-file numbers: diffStats reports them as the size of the change.
+      file.removed.push({ line: oldLine++, text: normalise(raw.slice(1)) });
       continue;
     }
+    // A context line occupies a line in both files, so both counters advance — leaving oldLine put shifted every
+    // later removed line's old-file number.
+    oldLine += 1;
     file.context.push({ line: newLine++, text: normalise(raw.startsWith(" ") ? raw.slice(1) : raw) });
   }
 
@@ -77,13 +80,19 @@ export function resolveQuote(files, path, quote) {
   const wanted = normalise(String(quote).split("\n")[0]);
   if (!wanted) return null;
 
-  const exact = candidates.filter((c) => normalise(c.text) === wanted);
-  if (exact.length === 1) return exact[0];
-  if (exact.length > 1) return null;
+  const match = (wanted) => {
+    const exact = candidates.filter((c) => normalise(c.text) === wanted);
+    if (exact.length === 1) return exact[0];
+    if (exact.length > 1) return null;
+    const loose = wanted.trimStart();
+    const trimmed = candidates.filter((c) => normalise(c.text).trimStart() === loose);
+    return trimmed.length === 1 ? trimmed[0] : null;
+  };
 
-  const loose = wanted.trimStart();
-  const trimmed = candidates.filter((c) => normalise(c.text).trimStart() === loose);
-  return trimmed.length === 1 ? trimmed[0] : null;
+  // A model quoting from `git diff` output carries the diff's own prefix (`+  const x = …`), which never matches the
+  // file. The quote as given is tried first — so a line that really begins with `- ` still matches itself — and one
+  // prefix with its optional space is the only tolerance beyond whitespace.
+  return match(wanted) || (/^[+-]/.test(wanted) ? match(wanted.replace(/^[+-] ?/, "")) : null);
 }
 
 // Every file the diff touches. The coverage gate asks which of these the agent never opened, so a review that
@@ -98,8 +107,9 @@ export function diffStats(files) {
   const perFile = [...files.values()].map((f) => ({
     path: f.path,
     added: f.added.length,
-    removed: f.removed,
+    removed: f.removed.length,
   }));
+  // perFile.removed is already a count; reading .length off it summed undefined and produced NaN.
   const total = perFile.reduce((n, f) => ({ added: n.added + f.added, removed: n.removed + f.removed }), { added: 0, removed: 0 });
   return { perFile, total };
 }

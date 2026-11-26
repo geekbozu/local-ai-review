@@ -42,12 +42,12 @@ export default function (pi) {
     name: "report_finding",
     label: "Report finding",
     description:
-      "Record one review finding, anchored to a line of the change. Quote the line exactly as it appears in the file, " +
-      "character for character: the quote is how the comment is placed, so a paraphrase cannot be posted. Returns an " +
-      "id you can use with update_finding or withdraw_finding.",
+      "Record one review finding, anchored to a line of the change. Quote the line exactly as it appears in the file — " +
+      "the quote is how the comment is placed, so a paraphrase cannot be posted. Returns an id you can use with " +
+      "update_finding or withdraw_finding.",
     parameters: Type.Object({
       path: Type.String({ description: "File path exactly as it appears in the diff, e.g. src/services/events.ts" }),
-      quote: Type.String({ description: "The exact text of the line, copied from the file, no line number" }),
+      quote: Type.String({ description: "The exact text of the line, copied from the file, no line number." }),
       severity: SEVERITY,
       confidence: Type.Integer({
         minimum: 0,
